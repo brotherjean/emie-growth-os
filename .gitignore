@@ -1,0 +1,31 @@
+node_modules/
+dist/
+.DS_Store
+
+# Server-side secrets. Do not commit real provider keys.
+.env
+.env.*
+!.env.example
+
+# Local AI comparison reports can contain internal business text.
+outputs/
+backups/
+
+# Runtime data and imported source files stay outside Git.
+*.sqlite
+*.sqlite-*
+*.db
+*.xlsx
+*.xls
+*.csv
+*.jsonl
+
+# Credentials and infrastructure access material must never enter the repo.
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local snapshots may contain employee or company data.
+*.bak-*
+src/data/private/

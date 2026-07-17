@@ -1,0 +1,96 @@
+{
+  "meta": {
+    "importedAt": "2026-07-17T00:00:00+08:00",
+    "source": {
+      "type": "ANONYMIZED_DEMO"
+    }
+  },
+  "cycles": [
+    {
+      "id": "demo-2026-01",
+      "label": "2026年1月协同360评分",
+      "mode": "monthly",
+      "startDate": "2026-01-01",
+      "endDate": "2026-01-31",
+      "launchAt": "2026-01-15T10:00:00+08:00",
+      "dueAt": "2026-01-16T10:00:00+08:00",
+      "followupAfterAt": "2026-01-17T10:00:00+08:00",
+      "historicalWeight": 30,
+      "currentWeight": 70,
+      "status": "active",
+      "totalEmployees": 2,
+      "totalEvaluees": 2,
+      "totalAssignments": 2,
+      "totalResponses": 2,
+      "progressPct": 100,
+      "averageScore": 89
+    }
+  ],
+  "employees": ["Demo Manager", "林清", "周远"],
+  "assignments": [
+    {
+      "id": "demo-assignment-001",
+      "cycleId": "demo-2026-01",
+      "evaluee": "林清",
+      "evaluator": "Demo Manager"
+    },
+    {
+      "id": "demo-assignment-002",
+      "cycleId": "demo-2026-01",
+      "evaluee": "周远",
+      "evaluator": "林清"
+    }
+  ],
+  "responses": [
+    {
+      "id": "demo-response-001",
+      "assignmentId": "demo-assignment-001",
+      "cycleId": "demo-2026-01",
+      "evaluee": "林清",
+      "evaluator": "Demo Manager",
+      "score": 91,
+      "submittedAt": "2026-01-15T15:00:00+08:00"
+    },
+    {
+      "id": "demo-response-002",
+      "assignmentId": "demo-assignment-002",
+      "cycleId": "demo-2026-01",
+      "evaluee": "周远",
+      "evaluator": "林清",
+      "score": 87,
+      "submittedAt": "2026-01-15T15:10:00+08:00"
+    }
+  ],
+  "results": [
+    {
+      "name": "林清",
+      "expected": 1,
+      "submitted": 1,
+      "completionRate": 100,
+      "averageScore": 91,
+      "previousScore": 88,
+      "rollingScore": 90.1,
+      "historicalWeight": 30,
+      "currentWeight": 70,
+      "level": "A",
+      "minScore": 91,
+      "maxScore": 91,
+      "evaluators": ["Demo Manager"]
+    },
+    {
+      "name": "周远",
+      "expected": 1,
+      "submitted": 1,
+      "completionRate": 100,
+      "averageScore": 87,
+      "previousScore": 85,
+      "rollingScore": 86.4,
+      "historicalWeight": 30,
+      "currentWeight": 70,
+      "level": "B+",
+      "minScore": 87,
+      "maxScore": 87,
+      "evaluators": ["林清"]
+    }
+  ]
+}

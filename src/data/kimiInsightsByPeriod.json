@@ -1,0 +1,60 @@
+{
+  "2026-W01": {
+    "meta": {
+      "provider": "demo",
+      "model": "anonymous-fixture",
+      "generatedAt": "2026-01-03T00:00:00+08:00",
+      "source": "ANONYMIZED_DEMO:2026-W01"
+    },
+    "executiveSummary": ["团队完成首轮问题识别，并形成下一周可验证动作。"],
+    "collectiveFocus": [],
+    "companyMessageDraft": "匿名演示：本周先把问题定义清楚，下周用行动和证据回应。",
+    "attentionQueue": [],
+    "mustReadReports": [],
+    "themes": [],
+    "employeeInsights": [],
+    "feishuTaskPlan": {
+      "tasklistName": "周报闭环任务池",
+      "requiredScopes": ["task:task:write", "task:task:read"],
+      "creationMode": "review_then_create"
+    }
+  },
+  "2026-W02": {
+    "meta": {
+      "provider": "demo",
+      "model": "anonymous-fixture",
+      "generatedAt": "2026-07-17T00:00:00+08:00",
+      "source": "ANONYMIZED_DEMO:2026-W02"
+    },
+    "executiveSummary": ["团队本周准时提交，两个上周承诺均有本周证据回应。"],
+    "collectiveFocus": [
+      {
+        "title": "机制沉淀",
+        "detail": "把已验证的个人方法整理为团队可复用模板。"
+      }
+    ],
+    "companyMessageDraft": "匿名演示：上周承诺已经在本周被证据回应，下一步继续沉淀团队机制。",
+    "attentionQueue": [
+      {
+        "priority": "P1",
+        "source": "林清",
+        "department": "产品部,运营部",
+        "theme": "跨部门评审",
+        "title": "建立需求评审前置清单",
+        "whyBoss": "需要产品和运营共同采用。",
+        "owner": "林清",
+        "ownerOpenId": "demo_open_id_001",
+        "dueDate": "2026-01-16",
+        "evidence": "匿名演示周报。"
+      }
+    ],
+    "mustReadReports": [],
+    "themes": [],
+    "employeeInsights": [],
+    "feishuTaskPlan": {
+      "tasklistName": "周报闭环任务池",
+      "requiredScopes": ["task:task:write", "task:task:read"],
+      "creationMode": "review_then_create"
+    }
+  }
+}

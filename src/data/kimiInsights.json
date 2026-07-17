@@ -1,0 +1,130 @@
+{
+  "meta": {
+    "provider": "demo",
+    "model": "anonymous-fixture",
+    "generatedAt": "2026-07-17T00:00:00+08:00",
+    "source": "ANONYMIZED_DEMO"
+  },
+  "executiveSummary": [
+    "团队本周准时提交，两个上周承诺均有本周证据回应。",
+    "产品和运营正在从个人动作转向可复用的团队机制。"
+  ],
+  "collectiveFocus": [
+    {
+      "title": "评审输入标准化",
+      "detail": "把跨部门评审需要的数据、假设和决策问题固定下来。"
+    },
+    {
+      "title": "复购机制沉淀",
+      "detail": "从单次触达升级为每周可追踪的运营检查表。"
+    }
+  ],
+  "companyMessageDraft": "本周的匿名演示数据展示了一个简单闭环：上周承诺，本周执行，用证据回应，再形成新的机制建设动作。",
+  "attentionQueue": [
+    {
+      "priority": "P1",
+      "source": "林清",
+      "department": "产品部,运营部",
+      "theme": "跨部门评审",
+      "title": "建立需求评审前置清单",
+      "whyBoss": "需要确认产品和运营共同采用同一套评审输入标准。",
+      "owner": "林清",
+      "ownerOpenId": "demo_open_id_001",
+      "dueDate": "2026-01-16",
+      "evidence": "匿名演示：连续两周出现评审输入不完整。"
+    }
+  ],
+  "mustReadReports": [
+    {
+      "name": "林清",
+      "department": "产品部",
+      "reason": "上周计划在本周形成了可验证成果。",
+      "focus": "关注如何把个人方法转成团队机制。",
+      "evidence": "匿名演示周报。"
+    }
+  ],
+  "themes": [
+    {
+      "label": "跨部门评审",
+      "value": 7,
+      "severity": "P1",
+      "summary": "评审输入信息不完整会造成反复沟通。",
+      "detail": "产品和运营需要在评审前共同确认数据、假设、目标和待决策问题。",
+      "quotes": [
+        {
+          "author": "林清",
+          "department": "产品部",
+          "week": "1月第二周",
+          "text": "匿名示例原文：跨部门评审的输入信息仍不完整。"
+        }
+      ],
+      "nextStep": "本周完成前置清单并验证一次。"
+    }
+  ],
+  "employeeInsights": [
+    {
+      "name": "林清",
+      "coachSummary": "你已经把上周承诺变成了本周成果，下一步是验证团队是否愿意持续采用。",
+      "coachQuestions": [
+        "哪些输入缺失最容易造成返工？",
+        "怎样判断这份清单真正减少了沟通成本？"
+      ],
+      "taskCandidates": [
+        {
+          "id": "demo-task-001",
+          "priority": "P1",
+          "source": "林清",
+          "department": "产品部",
+          "owner": "林清",
+          "ownerOpenId": "demo_open_id_001",
+          "title": "完成需求评审前置清单",
+          "description": "整理评审所需的数据、假设、决策问题和责任人，并用于一次评审。",
+          "dueDate": "2026-01-16",
+          "metric": "至少一次真实评审采用，参与者确认输入完整。",
+          "evidence": "匿名演示周报。",
+          "aiIntent": "把重复沟通问题转成团队机制。",
+          "firstStep": "列出最近一次评审中缺失的三类输入。",
+          "supportNeeded": "需要运营代表共同评审清单。",
+          "contextNeed": "最近两周评审记录。"
+        }
+      ]
+    },
+    {
+      "name": "周远",
+      "coachSummary": "你已经形成首轮数据，下一步是补足低活跃用户的真实原因并固化节奏。",
+      "coachQuestions": [
+        "哪些低活跃用户最值得优先访谈？",
+        "什么指标能证明新的触达策略有效？"
+      ],
+      "taskCandidates": [
+        {
+          "id": "demo-task-002",
+          "priority": "P1",
+          "source": "周远",
+          "department": "运营部",
+          "owner": "周远",
+          "ownerOpenId": "demo_open_id_002",
+          "title": "完成五位低活跃用户访谈",
+          "description": "记录不复购原因，并基于真实反馈更新分层触达策略。",
+          "dueDate": "2026-01-16",
+          "metric": "完成五份访谈记录和一版策略调整说明。",
+          "evidence": "匿名演示周报。",
+          "aiIntent": "让运营策略由数据和用户反馈共同驱动。",
+          "firstStep": "筛选五位代表性低活跃用户。",
+          "supportNeeded": "需要客服协助联系用户。",
+          "contextNeed": "首轮分层触达数据。"
+        }
+      ]
+    }
+  ],
+  "feishuTaskPlan": {
+    "tasklistName": "周报闭环任务池",
+    "requiredScopes": [
+      "task:task:write",
+      "task:task:read",
+      "task:tasklist:write",
+      "task:tasklist:read"
+    ],
+    "creationMode": "review_then_create"
+  }
+}
