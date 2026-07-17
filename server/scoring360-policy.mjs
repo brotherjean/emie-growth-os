@@ -20,8 +20,9 @@ export function scoring360CycleForLaunchDate(dateLike) {
   if (!Number.isFinite(date.getTime())) {
     throw new Error("invalid_scoring360_launch_date");
   }
-  const round = date.getDate() >= 15 ? 2 : 1;
-  const period = previousMonthPeriod(date);
+  const localDate = shanghaiDateParts(date);
+  const round = localDate.day >= 15 ? 2 : 1;
+  const period = previousMonthPeriod(localDate);
   return {
     id: `${period.year}-${String(period.month).padStart(2, "0")}-round${round}-360`,
     label: `${period.year}年${period.month}月协同360评分 · 第${round}轮`,
@@ -65,12 +66,27 @@ export function normalizeScoring360Managers(input) {
     });
 }
 
+function shanghaiDateParts(date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+  };
+}
+
 function previousMonthPeriod(date) {
-  const year = date.getMonth() === 0 ? date.getFullYear() - 1 : date.getFullYear();
-  const month = date.getMonth() === 0 ? 12 : date.getMonth();
+  const year = date.month === 1 ? date.year - 1 : date.year;
+  const month = date.month === 1 ? 12 : date.month - 1;
   return {
     year,
     month,
-    daysInMonth: new Date(year, month, 0).getDate(),
+    daysInMonth: new Date(Date.UTC(year, month, 0)).getUTCDate(),
   };
 }
