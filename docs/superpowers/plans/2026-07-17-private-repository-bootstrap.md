@@ -9,8 +9,16 @@
 - [x] 添加匿名演示数据，保持前端和测试可运行。
 - [x] 补充 README、项目历史、项目现状、安全说明和 PR 规范。
 - [x] 安装依赖并执行构建、闭环测试、360 策略/API 测试、静态校验、依赖审计和秘密扫描。
-- [ ] 初始化 Git，提交安全基线并创建 Private GitHub 仓库。
-- [ ] 验证远端可见性、默认分支和协作入口。
+- [x] 初始化 Git，提交安全基线并创建 Private GitHub 仓库。
+- [x] 验证远端可见性、默认分支、CI 和协作入口。
+
+## 验证记录
+
+- Private 仓库：`https://github.com/brotherjean/emie-growth-os`
+- 默认分支：`main`
+- GitHub Actions：`verify` 已通过
+- 合并策略：允许 squash/rebase，关闭 merge commit，合并后删除分支
+- Branch Protection：当前 GitHub 个人套餐对 Private 仓库返回 HTTP 403；已用 CODEOWNERS、PR 模板、CI 和协作规范替代，升级 GitHub Pro 后可强制执行。
 
 ## 成功标准
 

@@ -93,5 +93,4 @@ npm run static:validate
 3. 提交 Pull Request，说明修改目标、影响范围、测试证据和数据安全检查。
 4. 由仓库所有者审阅并决定是否合并、是否进入生产部署。
 
-完整规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
+完整规则见 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [访问与审阅流程](docs/ACCESS_AND_REVIEW.md)。
