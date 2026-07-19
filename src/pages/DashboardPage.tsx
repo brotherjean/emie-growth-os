@@ -1,21 +1,16 @@
 import {
   AlertTriangle,
-  Brain,
   CheckCircle2,
-  ClipboardList,
   Eye,
   FileText,
   ListChecks,
-  MessageSquareText,
   Network,
   Send,
   Users,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PriorityBadge } from "../components/PriorityBadge";
-import { ScoreBadge } from "../components/ScoreBadge";
-import { HorizontalBars, Sparkline } from "../components/SimpleCharts";
-import { StatCard } from "../components/StatCard";
+import { HorizontalBars } from "../components/SimpleCharts";
 import {
   appData,
   currentScoring360Cycle,
@@ -161,77 +156,169 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
     }
   }
 
+  const heroLine = executiveSummary[0] || "本周公司整体运转平稳，暂无需要老板立即介入的风险。";
+
   return (
-    <div className="page-stack">
-      <section className="kpi-grid">
-        <StatCard
-          label="提交状态"
-          value={`${submittedCount}/${peopleCount}`}
-          note={exemptCount ? `${exemptCount} 人产假/豁免，全员准时` : "本周期提交已同步"}
-          tone="blue"
-          icon={<Users size={18} />}
-        />
-        <StatCard label="P0 必须介入" value={p0Count} note="授权与送审是本周关键" tone="red" icon={<AlertTriangle size={18} />} />
-        <StatCard label="跨部门协调" value={coordinationCount} note="优先进入老板协调台" tone="amber" icon={<Network size={18} />} />
-        <StatCard label="正向样本" value={praiseCount} note="适合在大群公开表扬" tone="teal" icon={<MessageSquareText size={18} />} />
+    <div className="v2-page v2-page-wide">
+      <section className="v2-dash-hero">
+        <div className="v2-dash-hero-head">
+          <div>
+            <p className="v2-dash-hero-title">{selectedPeriod?.label || appData.currentWeekLabel} · 公司本周雷达</p>
+            <h2 className="v2-dash-hero-line">{heroLine}</h2>
+          </div>
+        </div>
+        <div className="v2-dash-stats">
+          <div className="v2-dash-stat">
+            <span className="v2-dash-stat-num">
+              {submittedCount}/{peopleCount}
+            </span>
+            <span className="v2-dash-stat-label">周报提交{exemptCount ? ` · ${exemptCount} 人豁免` : " · 全员准时"}</span>
+          </div>
+          <div className="v2-dash-stat">
+            <span className={`v2-dash-stat-num ${p0Count > 0 ? "is-alert" : ""}`}>{p0Count}</span>
+            <span className="v2-dash-stat-label">P0 必须介入</span>
+          </div>
+          <div className="v2-dash-stat">
+            <span className={`v2-dash-stat-num ${coordinationCount > 0 ? "is-alert" : ""}`}>{coordinationCount}</span>
+            <span className="v2-dash-stat-label">跨部门协调</span>
+          </div>
+          <div className="v2-dash-stat">
+            <span className="v2-dash-stat-num is-good">{praiseCount}</span>
+            <span className="v2-dash-stat-label">正向样本 · 适合公开表扬</span>
+          </div>
+        </div>
       </section>
 
-      <section className="dashboard-grid">
-        <div className="dashboard-column dashboard-column-wide">
-          <article className="panel briefing-panel">
-            <div className="panel-heading">
+      <div className="v2-dash-layout">
+        <div className="v2-dash-main">
+          <section className="v2-card">
+            <div className="v2-card-head">
               <div>
-                <span className="section-label">AI Briefing</span>
-                <h2>本周公司整体情况</h2>
+                <span className="v2-eyebrow">
+                  <AlertTriangle size={13} />
+                  决策区
+                </span>
+                <h3 className="v2-card-title">需要你拍板的事</h3>
+                <p className="v2-card-sub">员工单人推不动、需要拆墙、拍板或调资源的事项，按优先级排列。</p>
               </div>
-              <Sparkline values={trendValues} />
             </div>
-            <div className="briefing-list">
-              {executiveSummary.slice(0, 6).map((item) => {
-                const [lead, ...rest] = item.split(/[。:：]/);
+            {periodAttentionQueue.length === 0 && periodCoordinationSignals.length === 0 ? (
+              <p className="v2-empty-hint">本周没有需要你介入的事项，组织在自己闭环。</p>
+            ) : null}
+            {periodAttentionQueue
+              .slice()
+              .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
+              .slice(0, 4)
+              .map((task) => {
+                const tags = getCoordinationTags(task);
                 return (
-                  <p key={item}>
+                  <div className="v2-decide-row" key={task.title}>
+                    <div className="v2-decide-main">
+                      <div className="v2-decide-title">
+                        <PriorityBadge priority={task.priority} />
+                        {task.title.replace(/^【周报P\d】/, "")}
+                      </div>
+                      <p>{truncate(task.evidence, 96)}</p>
+                      <div className="v2-decide-meta">
+                        <span>来源：{task.source}</span>
+                        {tags.slice(0, 2).map((tag) => (
+                          <span className={`coordination-tag tag-${tag.type}`} key={`${task.title}-${tag.type}`}>
+                            {tag.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            {periodCoordinationSignals.length > 0 ? (
+              <>
+                <p className="v2-card-sub v2-section-gap">跨部门协调台 · 靠单人努力难以推动的事项</p>
+                {periodCoordinationSignals.slice(0, 3).map((signal) => (
+                  <div className="v2-decide-row" key={`${signal.priority}-${signal.title}`}>
+                    <div className="v2-decide-main">
+                      <div className="v2-decide-title">
+                        <PriorityBadge priority={signal.priority} />
+                        {signal.title.replace(/^【周报P\d】/, "")}
+                      </div>
+                      <p>{truncate(signal.decision, 96)}</p>
+                      <div className="v2-decide-meta">
+                        <span>牵头：{signal.owner || "待定"}</span>
+                        <span>{signal.departments.length > 0 ? signal.departments.join(" / ") : signal.theme}</span>
+                        {signal.tags.slice(0, 3).map((tag) => (
+                          <span className={`coordination-tag tag-${tag.type}`} key={`${signal.title}-${tag.type}`}>
+                            {tag.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </>
+            ) : null}
+          </section>
+
+          <section className="v2-card">
+            <div className="v2-card-head">
+              <div>
+                <span className="v2-eyebrow">
+                  <FileText size={13} />
+                  AI 简报
+                </span>
+                <h3 className="v2-card-title">公司本周整体情况</h3>
+              </div>
+            </div>
+            {executiveSummary.slice(0, 5).map((item, index) => {
+              const [lead, ...rest] = item.split(/[。:：]/);
+              return (
+                <div className="v2-brief-item" key={item}>
+                  <span className="v2-brief-index">{index + 1}</span>
+                  <p>
                     <strong>{lead}。</strong>
                     {rest.join("。")}
                   </p>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })}
             <div className="health-chips">
               <span className="chip is-good">设计部 82.9</span>
               <span className="chip is-good">采购跟单 82.9</span>
               <span className="chip is-watch">产品企划 67.1</span>
               <span className="chip is-watch">国内事业部 71.7</span>
             </div>
-          </article>
-
-          <article className="panel collective-panel">
-            <div className="panel-heading compact">
-              <div>
-                <span className="section-label">Team Focus</span>
-                <h2>需要集体关注的细节</h2>
-              </div>
-              <ListChecks size={18} />
-            </div>
-            <div className="focus-list">
-              {collectiveFocus.slice(0, 6).map((item) => (
-                <div key={`${item.title}-${item.detail}`}>
-                  <strong>{item.title}</strong>
-                  <span>{item.detail}</span>
-                </div>
-              ))}
-            </div>
-          </article>
+            {collectiveFocus.length > 0 ? (
+              <>
+                <p className="v2-card-sub v2-section-gap">需要集体关注的细节</p>
+                {collectiveFocus.slice(0, 4).map((item) => (
+                  <div className="v2-brief-item" key={`${item.title}-${item.detail}`}>
+                    <span className="v2-brief-index">
+                      <ListChecks size={13} />
+                    </span>
+                    <p>
+                      <strong>{item.title}。</strong>
+                      {item.detail}
+                    </p>
+                  </div>
+                ))}
+              </>
+            ) : null}
+          </section>
 
           {activeDepartmentBrief ? (
-            <article className="panel department-meeting-panel">
-              <div className="panel-heading compact">
+            <section className="v2-card">
+              <div className="v2-card-head">
                 <div>
-                  <span className="section-label">Department Meeting</span>
-                  <h2>部门会议雷达</h2>
+                  <span className="v2-eyebrow">
+                    <Users size={13} />
+                    部门会议雷达
+                  </span>
+                  <h3 className="v2-card-title">带着议题去开部门会</h3>
+                  <p className="v2-card-sub">
+                    分析窗口：{activeDepartmentBrief.recentPeriodLabels.join("、")}。先定议题，再把反复出现的问题沉淀为长期机制。
+                  </p>
                 </div>
                 <select
-                  className="department-meeting-select"
+                  className="v2-select"
                   value={activeDepartmentBrief.department}
                   onChange={(event) => setSelectedDepartment(event.target.value)}
                   aria-label="选择部门会议视角"
@@ -243,304 +330,233 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
                   ))}
                 </select>
               </div>
-              <div className="department-meeting-metrics">
-                <div>
+              <div className="v2-metric-row">
+                <div className="v2-profile-block">
                   <span>部门成员</span>
-                  <strong>{activeDepartmentBrief.memberCount}</strong>
-                </div>
-                <div>
-                  <span>本周均分</span>
-                  <strong>{activeDepartmentBrief.currentAverage || "-"}</strong>
-                  <small className={activeDepartmentBrief.scoreDelta >= 0 ? "is-up" : "is-down"}>
-                    {activeDepartmentBrief.scoreDelta >= 0 ? "+" : ""}
-                    {activeDepartmentBrief.scoreDelta || 0}
-                  </small>
-                </div>
-                <div>
-                  <span>闭环力</span>
-                  <strong>{activeDepartmentBrief.closureScore || "-"}</strong>
-                </div>
-                <div>
-                  <span>P0/P1/P2</span>
-                  <strong>
-                    {activeDepartmentBrief.priorityCounts.P0}/{activeDepartmentBrief.priorityCounts.P1}/
-                    {activeDepartmentBrief.priorityCounts.P2}
-                  </strong>
-                </div>
-              </div>
-              <div className="department-meeting-layout">
-                <div className="department-agenda-block">
-                  <h3>本周会议议题</h3>
-                  <div className="department-agenda-list">
-                    {activeDepartmentBrief.urgentIssues.length > 0 ? (
-                      activeDepartmentBrief.urgentIssues.slice(0, 4).map((issue) => (
-                        <div className="department-agenda-row" key={`${issue.priority}-${issue.title}-${issue.source}`}>
-                          <div className="department-agenda-title">
-                            <PriorityBadge priority={issue.priority} />
-                            <strong>{issue.title}</strong>
-                          </div>
-                          <p>{truncate(issue.detail, 112)}</p>
-                          <div className="department-agenda-meta">
-                            <span>{issue.periodLabel}</span>
-                            <span>来源：{issue.source || "周报"}</span>
-                            <span>牵头：{issue.owner || "待定"}</span>
-                            {issue.fromOutside ? <span className="is-external">外部输入</span> : null}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="department-agenda-empty">这个部门本周期暂未出现需要会议优先处理的 P0/P1/P2 议题。</p>
-                    )}
+                  <div className="v2-profile-360">
+                    <strong>{activeDepartmentBrief.memberCount}</strong>
+                    <span>人</span>
                   </div>
                 </div>
-                <div className="department-agenda-block">
-                  <h3>重要但不紧急</h3>
-                  <div className="department-agenda-list">
-                    {activeDepartmentBrief.longTermTasks.length > 0 ? (
-                      activeDepartmentBrief.longTermTasks.slice(0, 3).map((issue) => (
-                        <div className="department-agenda-row is-long-term" key={`${issue.title}-${issue.theme}`}>
-                          <div className="department-agenda-title">
+                <div className="v2-profile-block">
+                  <span>本周均分</span>
+                  <div className="v2-profile-360">
+                    <strong>{activeDepartmentBrief.currentAverage || "-"}</strong>
+                    <span className={activeDepartmentBrief.scoreDelta >= 0 ? "is-up" : "is-down"}>
+                      {activeDepartmentBrief.scoreDelta >= 0 ? "+" : ""}
+                      {activeDepartmentBrief.scoreDelta || 0}
+                    </span>
+                  </div>
+                </div>
+                <div className="v2-profile-block">
+                  <span>闭环力</span>
+                  <div className="v2-profile-360">
+                    <strong>{activeDepartmentBrief.closureScore || "-"}</strong>
+                  </div>
+                </div>
+                <div className="v2-profile-block">
+                  <span>P0 / P1 / P2</span>
+                  <div className="v2-profile-360">
+                    <strong>
+                      {activeDepartmentBrief.priorityCounts.P0}/{activeDepartmentBrief.priorityCounts.P1}/{activeDepartmentBrief.priorityCounts.P2}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+              <div className="v2-grid-2 v2-section-gap">
+                <div>
+                  <p className="v2-card-sub">本周会议议题</p>
+                  {activeDepartmentBrief.urgentIssues.length > 0 ? (
+                    activeDepartmentBrief.urgentIssues.slice(0, 3).map((issue) => (
+                      <div className="v2-decide-row" key={`${issue.priority}-${issue.title}-${issue.source}`}>
+                        <div className="v2-decide-main">
+                          <div className="v2-decide-title">
                             <PriorityBadge priority={issue.priority} />
-                            <strong>{issue.theme || issue.title}</strong>
+                            {issue.title}
                           </div>
                           <p>{truncate(issue.detail, 96)}</p>
-                          <div className="coordination-mini-tags">
-                            {issue.tags.slice(0, 3).map((tag) => (
-                              <span className={`coordination-tag tag-${tag.type}`} key={`${issue.title}-${tag.type}`}>
-                                {tag.label}
-                              </span>
-                            ))}
+                          <div className="v2-decide-meta">
+                            <span>{issue.periodLabel}</span>
+                            <span>牵头：{issue.owner || "待定"}</span>
+                            {issue.fromOutside ? <span>外部输入</span> : null}
                           </div>
                         </div>
-                      ))
-                    ) : (
-                      <p className="department-agenda-empty">暂无明显长期机制建设项，可在会议中补充人为判断。</p>
-                    )}
-                  </div>
-                  <h3>跨周闭环观察</h3>
-                  <div className="department-closure-list">
-                    {activeDepartmentBrief.closureSignals.length > 0 ? (
-                      activeDepartmentBrief.closureSignals.map((signal) => (
-                        <button
-                          className="department-closure-row"
-                          type="button"
-                          key={`${signal.name}-${signal.status}`}
-                          onClick={() => onOpenEmployee(signal.name)}
-                        >
-                          <span>
-                            <strong>{signal.name}</strong>
-                            <small>{signal.persona} · {signal.status}</small>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="v2-empty-hint">本周期暂无需要会议优先处理的议题。</p>
+                  )}
+                </div>
+                <div>
+                  <p className="v2-card-sub">重要但不紧急</p>
+                  {activeDepartmentBrief.longTermTasks.length > 0 ? (
+                    activeDepartmentBrief.longTermTasks.slice(0, 2).map((issue) => (
+                      <div className="v2-decide-row" key={`${issue.title}-${issue.theme}`}>
+                        <div className="v2-decide-main">
+                          <div className="v2-decide-title">
+                            <PriorityBadge priority={issue.priority} />
+                            {issue.theme || issue.title}
+                          </div>
+                          <p>{truncate(issue.detail, 88)}</p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="v2-empty-hint">暂无明显长期机制建设项。</p>
+                  )}
+                  <p className="v2-card-sub v2-section-gap">跨周闭环观察</p>
+                  {activeDepartmentBrief.closureSignals.length > 0 ? (
+                    activeDepartmentBrief.closureSignals.slice(0, 3).map((signal) => (
+                      <button className="v2-person-row" type="button" key={`${signal.name}-${signal.status}`} onClick={() => onOpenEmployee(signal.name)}>
+                        <span>
+                          <span className="v2-person-name">{signal.name}</span>
+                          <span className="v2-person-sub">
+                            {signal.persona} · {signal.status}
                           </span>
-                          <em>{signal.score}</em>
-                          <p>{truncate(signal.nextStep || signal.signal, 60)}</p>
-                        </button>
-                      ))
-                    ) : (
-                      <p className="department-agenda-empty">暂无足够跨周闭环样本。</p>
-                    )}
-                  </div>
+                        </span>
+                        <em>{signal.score}</em>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="v2-empty-hint">暂无足够跨周闭环样本。</p>
+                  )}
                 </div>
               </div>
-              <div className="department-external-signals">
-                <strong>其他部门输入</strong>
-                {activeDepartmentBrief.externalSignals.length > 0 ? (
-                  activeDepartmentBrief.externalSignals.slice(0, 3).map((issue) => (
-                    <span key={`${issue.source}-${issue.title}`}>{issue.source}：{truncate(issue.title, 34)}</span>
-                  ))
-                ) : (
-                  <span>暂无明显外部输入</span>
-                )}
-              </div>
-              <p className="department-meeting-note">
-                分析窗口：{activeDepartmentBrief.recentPeriodLabels.join("、")}。这里用于每周部门会先定议题，再把反复出现的问题沉淀为长期机制任务。
-              </p>
-            </article>
+              {activeDepartmentBrief.externalSignals.length > 0 ? (
+                <p className="v2-card-sub v2-section-gap">
+                  其他部门输入：
+                  {activeDepartmentBrief.externalSignals.slice(0, 3).map((issue) => `${issue.source}：${truncate(issue.title, 30)}`).join("；")}
+                </p>
+              ) : null}
+            </section>
           ) : null}
 
-          <article className="panel coordination-panel">
-            <div className="panel-heading compact">
-              <div>
-                <span className="section-label">Coordination Desk</span>
-                <h2>跨部门协调台</h2>
-              </div>
-              <Network size={18} />
-            </div>
-            <div className="coordination-list">
-              {periodCoordinationSignals.slice(0, 4).map((signal) => (
-                <div className="coordination-row" key={`${signal.priority}-${signal.title}`}>
-                  <div className="coordination-title">
-                    <PriorityBadge priority={signal.priority} />
-                    <strong>{signal.title.replace(/^【周报P\d】/, "")}</strong>
-                  </div>
-                  <p>{truncate(signal.decision, 96)}</p>
-                  <div className="coordination-meta">
-                    <span>牵头：{signal.owner || "待定"}</span>
-                    <span>{signal.departments.length > 0 ? signal.departments.join(" / ") : signal.theme}</span>
-                  </div>
-                  <div className="coordination-tags">
-                    {signal.tags.slice(0, 4).map((tag) => (
-                      <span className={`coordination-tag tag-${tag.type}`} key={`${signal.title}-${tag.type}`}>{tag.label}</span>
-                    ))}
-                  </div>
+          <div className="v2-grid-2">
+            <section className="v2-card">
+              <div className="v2-card-head">
+                <div>
+                  <span className="v2-eyebrow">
+                    <CheckCircle2 size={13} />
+                    组织闭环雷达
+                  </span>
+                  <h3 className="v2-card-title">谁在真正闭环</h3>
+                  <p className="v2-card-sub">不看谁写得热闹，看上周承诺是否被本周证据回应。</p>
                 </div>
+                <span className="v2-closure-num is-small">{organizationClosureRadar.averageScore}</span>
+              </div>
+              <p className="v2-card-sub">闭环标杆</p>
+              {organizationClosureRadar.leaders.slice(0, 3).map((insight) => (
+                <button className="v2-person-row" type="button" key={insight.name} onClick={() => onOpenEmployee(insight.name)}>
+                  <span>
+                    <span className="v2-person-name">{insight.name}</span>
+                    <span className="v2-person-sub">
+                      {insight.persona} · 已闭环 {insight.closedCount}
+                    </span>
+                  </span>
+                  <em>{insight.score}</em>
+                </button>
               ))}
-            </div>
-            <p className="coordination-note">这里收纳员工靠单人努力难以推动的事项，老板只看需要拆墙、拍板或调资源的部分。</p>
-          </article>
-
-          <article className="panel closure-radar-panel">
-            <div className="panel-heading compact">
-              <div>
-                <span className="section-label">Closure Radar</span>
-                <h2>组织闭环雷达</h2>
-              </div>
-              <strong>{organizationClosureRadar.averageScore}</strong>
-            </div>
-            <div className="closure-radar-grid">
-              <div className="closure-radar-section">
-                <h3><CheckCircle2 size={15} />真正完成闭环的人</h3>
-                {organizationClosureRadar.leaders.slice(0, 4).map((insight) => (
-                  <button className="closure-person-row" type="button" key={insight.name} onClick={() => onOpenEmployee(insight.name)}>
+              <p className="v2-card-sub v2-section-gap">重复空转风险</p>
+              {organizationClosureRadar.risks.length > 0 ? (
+                organizationClosureRadar.risks.slice(0, 3).map((insight) => (
+                  <button className="v2-person-row is-risk" type="button" key={insight.name} onClick={() => onOpenEmployee(insight.name)}>
                     <span>
-                      <strong>{insight.name}</strong>
-                      <small>{insight.persona} · 已闭环 {insight.closedCount}</small>
+                      <span className="v2-person-name">{insight.name}</span>
+                      <span className="v2-person-sub">
+                        {insight.persona} · 风险 {insight.riskCount}
+                      </span>
                     </span>
                     <em>{insight.score}</em>
                   </button>
-                ))}
-              </div>
-              <div className="closure-radar-section">
-                <h3><AlertTriangle size={15} />重复空转风险</h3>
-                {organizationClosureRadar.risks.slice(0, 4).map((insight) => (
-                  <button className="closure-person-row is-risk" type="button" key={insight.name} onClick={() => onOpenEmployee(insight.name)}>
-                    <span>
-                      <strong>{insight.name}</strong>
-                      <small>{insight.persona} · 风险 {insight.riskCount}</small>
-                    </span>
-                    <em>{insight.score}</em>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="closure-signal-block">
-              <div>
-                <h3>机制沉淀样本</h3>
-                {organizationClosureRadar.mechanismSamples.slice(0, 3).map((insight) => (
-                  <button type="button" key={insight.name} onClick={() => onOpenEmployee(insight.name)}>
-                    {insight.name}：{truncate(insight.latestPair?.nextStep || insight.summary, 42)}
-                  </button>
-                ))}
-              </div>
-              <div>
-                <h3><Brain size={15} />AI 协同清晰思考者</h3>
-                {organizationClosureRadar.clearThinkers.slice(0, 3).map((insight) => (
-                  <button type="button" key={insight.name} onClick={() => onOpenEmployee(insight.name)}>
-                    {insight.name}：AI/机制信号 {insight.aiThinkingScore}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <p className="closure-radar-note">
-              闭环力不是看谁写得热闹，而是看上周承诺是否在本周被证据回应；机制型和清晰思考者，是未来能与 AI 共建组织上下文的人。
-            </p>
-          </article>
+                ))
+              ) : (
+                <p className="v2-empty-hint">暂无重复空转风险。</p>
+              )}
+            </section>
 
-          <article className="panel collaboration-radar-panel">
-            <div className="panel-heading compact">
-              <div>
-                <span className="section-label">Collaboration Radar</span>
-                <h2>协同评分雷达</h2>
+            <section className="v2-card">
+              <div className="v2-card-head">
+                <div>
+                  <span className="v2-eyebrow">
+                    <Network size={13} />
+                    协同评分雷达
+                  </span>
+                  <h3 className="v2-card-title">同事眼中的贡献者</h3>
+                  <p className="v2-card-sub">
+                    {currentScoring360Cycle?.label || "协同360评分"} · {currentScoring360Cycle?.totalResponses || 0}/{currentScoring360Cycle?.totalAssignments || 0} 已完成
+                  </p>
+                </div>
+                <span className="v2-closure-num is-small">{collaborationAverage.toFixed(1)}</span>
               </div>
-              <strong>{collaborationAverage.toFixed(1)}</strong>
-            </div>
-            <div className="collaboration-radar-meta">
-              <span>{currentScoring360Cycle?.label || "协同360评分"}</span>
-              <span>{currentScoring360Cycle?.totalResponses || 0}/{currentScoring360Cycle?.totalAssignments || 0} 已完成</span>
-            </div>
-            <div className="collaboration-radar-grid">
-              <div>
-                <h3>高协作贡献者</h3>
-                {collaborationLeaders.map((result, index) => (
-                  <button className="collaboration-person-row" type="button" key={result.name} onClick={() => onOpenEmployee(result.name)}>
-                    <b>{index + 1}</b>
-                    <span>
-                      <strong>{result.name}</strong>
-                      <small>{collaborationSignal(result)} · {result.submitted}/{result.expected} 票</small>
+              <p className="v2-card-sub">高协作贡献者</p>
+              {collaborationLeaders.slice(0, 3).map((result) => (
+                <button className="v2-person-row" type="button" key={result.name} onClick={() => onOpenEmployee(result.name)}>
+                  <span>
+                    <span className="v2-person-name">{result.name}</span>
+                    <span className="v2-person-sub">
+                      {collaborationSignal(result)} · {result.submitted}/{result.expected} 票
                     </span>
-                    <em>{result.averageScore}</em>
-                  </button>
-                ))}
-              </div>
-              <div>
-                <h3>协作孤岛风险</h3>
-                {collaborationRisks.map((result, index) => (
-                  <button className="collaboration-person-row is-risk" type="button" key={result.name} onClick={() => onOpenEmployee(result.name)}>
-                    <b>{index + 1}</b>
-                    <span>
-                      <strong>{result.name}</strong>
-                      <small>{collaborationSignal(result)} · 建议谈话校准</small>
-                    </span>
-                    <em>{result.averageScore}</em>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <p className="collaboration-radar-note">
-              低分不直接等于“不重要”，它提示老板核查：岗位是否被看见、协作是否断点、能力是否错配，或确实存在业务价值不足。
-            </p>
-          </article>
+                  </span>
+                  <em>{result.averageScore}</em>
+                </button>
+              ))}
+              <p className="v2-card-sub v2-section-gap">协作孤岛风险</p>
+              {collaborationRisks.slice(0, 2).map((result) => (
+                <button className="v2-person-row is-risk" type="button" key={result.name} onClick={() => onOpenEmployee(result.name)}>
+                  <span>
+                    <span className="v2-person-name">{result.name}</span>
+                    <span className="v2-person-sub">{collaborationSignal(result)} · 建议谈话校准</span>
+                  </span>
+                  <em>{result.averageScore}</em>
+                </button>
+              ))}
+              <p className="v2-card-sub v2-section-gap">低分提示老板核查：岗位是否被看见、协作是否断点、能力是否错配。</p>
+            </section>
+          </div>
         </div>
 
-        <div className="dashboard-column dashboard-column-mid">
-          <article className="panel attention-panel">
-            <div className="panel-heading compact">
+        <div className="v2-dash-side">
+          <section className="v2-card">
+            <div className="v2-card-head">
               <div>
-                <span className="section-label">CEO Queue</span>
-                <h2>管理注意力队列</h2>
+                <span className="v2-eyebrow">
+                  <Eye size={13} />
+                  必读周报
+                </span>
+                <h3 className="v2-card-title">这几份值得完整读</h3>
               </div>
-              <button className="text-button" type="button">
-                <ClipboardList size={16} />
-                <span>审核全部</span>
+            </div>
+            {mustRead.length === 0 ? <p className="v2-empty-hint">本周暂无必读周报。</p> : null}
+            {mustRead.slice(0, 4).map((report, index) => (
+              <button className="v2-mustread-card" key={report.name} type="button" onClick={() => onOpenEmployee(report.name)}>
+                <span className="v2-mustread-rank">{index + 1}</span>
+                <span>
+                  <strong>{report.name}</strong>
+                  <p>{report.reason || report.focus || report.evidence}</p>
+                  <span className="v2-mustread-tags">
+                    <span>{report.department}</span>
+                    {appData.employeeSummary.find((employee) => employee.name === report.name)?.level ? (
+                      <span>{appData.employeeSummary.find((employee) => employee.name === report.name)!.level} 级</span>
+                    ) : null}
+                  </span>
+                </span>
               </button>
-            </div>
-            <div className="attention-list">
-              {periodAttentionQueue
-                .slice()
-                .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
-                .slice(0, 6)
-                .map((task) => {
-                  const tags = getCoordinationTags(task);
-                  return (
-                    <div className="attention-row" key={task.title}>
-                      <PriorityBadge priority={task.priority} />
-                      <div>
-                        <strong>{task.title.replace(/^【周报P\d】/, "")}</strong>
-                        <p>{truncate(task.evidence, 78)}</p>
-                        {tags.length > 0 ? (
-                          <div className="coordination-mini-tags">
-                            {tags.slice(0, 2).map((tag) => (
-                              <span className={`coordination-tag tag-${tag.type}`} key={`${task.title}-${tag.type}`}>{tag.label}</span>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                      <span>{task.source}</span>
-                    </div>
-                  );
-                })}
-            </div>
-          </article>
+            ))}
+          </section>
 
-          <article className="panel summary-panel">
-            <div className="panel-heading compact">
+          <section className="v2-card">
+            <div className="v2-card-head">
               <div>
-                <span className="section-label">Company Message</span>
-                <h2>公司大群总结草稿</h2>
+                <span className="v2-eyebrow">
+                  <Send size={13} />
+                  公司大群总结
+                </span>
+                <h3 className="v2-card-title">本周想对大家说的话</h3>
+                <p className="v2-card-sub">发送后会保存老板最终版，用于下一周学习你的表达风格。</p>
               </div>
-              <FileText size={18} />
             </div>
             <textarea
-              className="message-editor"
+              className="v2-message-editor"
               value={companyMessageText}
               onChange={(event) => {
                 setCompanyMessageText(event.target.value);
@@ -551,61 +567,34 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
               }}
               aria-label="编辑公司大群总结"
             />
-            <div className="message-actions">
+            <div className="v2-focus-actions">
               <button
-                className="primary-button"
+                className="v2-btn v2-btn-primary"
                 type="button"
                 onClick={sendCompanyMessage}
                 disabled={sendStatus === "sending" || companyMessageText.trim().length === 0}
               >
-                <Send size={16} />
+                <Send size={15} />
                 <span>{sendStatus === "sending" ? "发送中..." : "一键发飞书群消息"}</span>
               </button>
-              <span className={`message-send-status is-${sendStatus}`}>{sendNote || "发送后会保存老板最终版，用于下一周学习你的表达风格。"}</span>
             </div>
-          </article>
-        </div>
+            {sendNote ? <p className={`v2-card-sub v2-section-gap message-send-status is-${sendStatus}`}>{sendNote}</p> : null}
+          </section>
 
-        <div className="dashboard-column dashboard-column-narrow">
-          <article className="panel must-read-panel">
-            <div className="panel-heading compact">
+          <section className="v2-card">
+            <div className="v2-card-head">
               <div>
-                <span className="section-label">Must Read</span>
-                <h2>必须完整阅读的周报</h2>
+                <span className="v2-eyebrow">
+                  <Users size={13} />
+                  部门周报质量
+                </span>
+                <h3 className="v2-card-title">{cnNumber(appData.peopleCount)} 人的质量分布</h3>
               </div>
-              <Eye size={18} />
-            </div>
-            <div className="must-read-list">
-              {mustRead.map((report, index) => (
-                <button className="must-read-card" key={report.name} type="button" onClick={() => onOpenEmployee(report.name)}>
-                  <div className="rank">{index + 1}</div>
-                  <div>
-                    <strong>{report.name}</strong>
-                    <p>{report.reason || report.focus || report.evidence}</p>
-                    <div className="tag-row">
-                      <span>{report.department}</span>
-                      {appData.employeeSummary.find((employee) => employee.name === report.name)?.level ? (
-                        <ScoreBadge level={appData.employeeSummary.find((employee) => employee.name === report.name)!.level} />
-                      ) : null}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </article>
-
-          <article className="panel department-panel">
-            <div className="panel-heading compact">
-              <div>
-                <span className="section-label">Department</span>
-                <h2>部门周报质量</h2>
-              </div>
-              <strong>{cnNumber(appData.peopleCount)} 人</strong>
             </div>
             <HorizontalBars data={departmentBars} />
-          </article>
+          </section>
         </div>
-      </section>
+      </div>
     </div>
   );
 }

@@ -35,7 +35,7 @@ const fallbackAccess: UserAccess = {
 };
 
 export function App() {
-  const [activePage, setActivePage] = useState<PageKey>("dashboard");
+  const [activePage, setActivePage] = useState<PageKey>("growth");
   const [selectedEmployee, setSelectedEmployee] = useState(appData.employeeSummary[0]?.name ?? "");
   const [selectedPeriodId, setSelectedPeriodId] = useState(appData.currentWeekId || appData.periods.at(-1)?.id || "");
   const [taskCreated, setTaskCreated] = useState(false);
@@ -166,6 +166,8 @@ export function App() {
         }}
         canViewBossDashboard={currentAccess.canViewBossDashboard}
         canViewSettings={currentAccess.canViewSettings}
+        userName={currentAccess.currentEmployee?.name || currentAccess.visibleEmployees[0]?.name || ""}
+        userDepartment={currentAccess.currentEmployee?.department || currentAccess.visibleEmployees[0]?.department || ""}
       />
       <main className="main-shell">
         <AppHeader

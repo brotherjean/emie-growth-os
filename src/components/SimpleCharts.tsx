@@ -105,12 +105,12 @@ export function RadarChart({ axes }: RadarProps) {
   return (
     <svg className="radar" viewBox={`0 0 ${size} ${size}`} role="img" aria-label="个人成长雷达">
       {grid.map((shape) => (
-        <polygon key={shape} points={shape} fill="none" stroke="#d8dee8" strokeWidth="1" />
+        <polygon key={shape} points={shape} fill="none" stroke="#dfe5df" strokeWidth="1" />
       ))}
       {points.map((point) => (
-        <line key={`${point.label}-axis`} x1={center} y1={center} x2={point.gx} y2={point.gy} stroke="#e5e7eb" />
+        <line key={`${point.label}-axis`} x1={center} y1={center} x2={point.gx} y2={point.gy} stroke="#e8ece8" />
       ))}
-      <polygon points={polygon} fill="rgba(37, 99, 235, 0.18)" stroke="#2563eb" strokeWidth="3" />
+      <polygon points={polygon} fill="rgba(13, 122, 95, 0.16)" stroke="#0d7a5f" strokeWidth="3" />
       {points.map((point) => (
         <text key={point.label} x={point.lx} y={point.ly} textAnchor="middle" dominantBaseline="middle">
           {point.label}

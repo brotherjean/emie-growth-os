@@ -1,23 +1,43 @@
 import {
-  BarChart3,
   CalendarClock,
   ClipboardCheck,
   Gauge,
   LineChart,
   Settings,
-  Sparkles,
+  Sprout,
   Trophy,
 } from "lucide-react";
 import type { NavItem, PageKey } from "../lib/types";
 
-const navItems: NavItem[] = [
-  { key: "dashboard", label: "老板驾驶舱", icon: Gauge },
-  { key: "monthly", label: "月度会议", icon: CalendarClock },
-  { key: "scores", label: "成长评分", icon: Trophy },
-  { key: "tasks", label: "任务闭环", icon: ClipboardCheck },
-  { key: "growth", label: "个人成长", icon: Sparkles },
-  { key: "trends", label: "组织趋势", icon: LineChart },
-  { key: "settings", label: "设置", icon: Settings },
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const navGroups: NavGroup[] = [
+  {
+    label: "我的成长",
+    items: [
+      { key: "growth", label: "成长首页", icon: Sprout },
+      { key: "scores", label: "成长评分", icon: Trophy },
+    ],
+  },
+  {
+    label: "组织脉搏",
+    items: [{ key: "trends", label: "组织趋势", icon: LineChart }],
+  },
+  {
+    label: "管理视角",
+    items: [
+      { key: "dashboard", label: "老板驾驶舱", icon: Gauge },
+      { key: "tasks", label: "任务闭环", icon: ClipboardCheck },
+      { key: "monthly", label: "月度会议", icon: CalendarClock },
+    ],
+  },
+  {
+    label: "系统",
+    items: [{ key: "settings", label: "设置", icon: Settings }],
+  },
 ];
 
 interface SidebarProps {
@@ -25,49 +45,63 @@ interface SidebarProps {
   onChangePage: (page: PageKey) => void;
   canViewBossDashboard: boolean;
   canViewSettings: boolean;
+  userName?: string;
+  userDepartment?: string;
 }
 
-export function Sidebar({ activePage, onChangePage, canViewBossDashboard, canViewSettings }: SidebarProps) {
-  const visibleNavItems = navItems.filter((item) => {
-    if (item.key === "dashboard") return canViewBossDashboard;
-    if (item.key === "monthly") return canViewBossDashboard;
-    if (item.key === "tasks") return canViewBossDashboard;
-    if (item.key === "settings") return canViewSettings;
+export function Sidebar({ activePage, onChangePage, canViewBossDashboard, canViewSettings, userName, userDepartment }: SidebarProps) {
+  const canOpen = (key: PageKey) => {
+    if (key === "dashboard" || key === "monthly" || key === "tasks") return canViewBossDashboard;
+    if (key === "settings") return canViewSettings;
     return true;
-  });
+  };
+  const visibleGroups = navGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => canOpen(item.key)) }))
+    .filter((group) => group.items.length > 0);
+
   return (
     <aside className="sidebar">
       <div className="brand">
         <div className="brand-mark">
-          <BarChart3 size={20} />
+          <Sprout size={19} />
         </div>
         <div>
-          <strong>成长周报 OS</strong>
-          <span>Weekly Growth</span>
+          <strong>亿觅成长 OS</strong>
+          <span>让成长被看见</span>
         </div>
       </div>
 
       <nav className="side-nav" aria-label="主导航">
-        {visibleNavItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.key}
-              className={`nav-item ${activePage === item.key ? "is-active" : ""}`}
-              type="button"
-              onClick={() => onChangePage(item.key)}
-            >
-              <Icon size={18} />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
+        {visibleGroups.map((group) => (
+          <div key={group.label}>
+            <div className="nav-group-label">{group.label}</div>
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.key}
+                  className={`nav-item ${activePage === item.key ? "is-active" : ""}`}
+                  type="button"
+                  onClick={() => onChangePage(item.key)}
+                >
+                  <Icon size={17} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
-      <div className="sidebar-status">
-        <span>飞书 SSO</span>
-        <strong>已连接</strong>
-      </div>
+      {userName ? (
+        <div className="sidebar-user">
+          <span className="sidebar-user-avatar">{userName.slice(0, 1)}</span>
+          <span>
+            <span className="sidebar-user-name">{userName}</span>
+            {userDepartment ? <span className="sidebar-user-dept">{userDepartment}</span> : null}
+          </span>
+        </div>
+      ) : null}
     </aside>
   );
 }

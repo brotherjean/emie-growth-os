@@ -4,13 +4,13 @@ import { appData } from "../lib/data";
 import type { PageKey } from "../lib/types";
 
 const titles: Record<PageKey, string> = {
-  dashboard: "老板驾驶舱 · 本周组织雷达",
-  monthly: "月度会议 · 经营复盘议程",
-  scores: "周报评分 · 质量与成长排行",
-  tasks: "任务闭环 · 从周报到行动",
-  growth: "个人成长 · AI 周报点评",
-  trends: "组织趋势 · 部门与主题演化",
-  settings: "设置 · 权限与数据入口",
+  dashboard: "老板驾驶舱",
+  monthly: "月度会议",
+  scores: "成长评分",
+  tasks: "任务闭环",
+  growth: "我的成长",
+  trends: "组织趋势",
+  settings: "设置",
 };
 
 interface AppHeaderProps {

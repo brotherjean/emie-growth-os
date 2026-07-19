@@ -1,9 +1,11 @@
 import { useState } from "react";
 import {
+  ArrowRight,
   BookOpen,
   Brain,
   CheckCircle2,
   CheckSquare2,
+  Crosshair,
   Database,
   Globe2,
   Lightbulb,
@@ -645,372 +647,527 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
     );
   }
 
+  const hour = new Date().getHours();
+  const greeting = hour < 6 ? "夜深了" : hour < 12 ? "早上好" : hour < 18 ? "下午好" : "晚上好";
+  const latestWeekTotal = chronologicalWeeks.at(-1)?.total ?? employee.averageScore;
+  const previousWeekTotal = chronologicalWeeks.length > 1 ? chronologicalWeeks[chronologicalWeeks.length - 2].total : undefined;
+  const weekDelta = previousWeekTotal === undefined ? employee.trend : Math.round((latestWeekTotal - previousWeekTotal) * 10) / 10;
+  const topCandidate = taskCandidates.find((candidate) => candidate.priority === "P0") ?? taskCandidates[0];
+  const topCandidateDisplay = topCandidate ? editedCandidate(topCandidate) : null;
+  const closurePairs = closureInsight?.pairs?.slice(-8) ?? [];
+  const heroSummary = employee.growthSummary || "持续记录、持续校准，让每一周都有被证据回应的进步。";
+  const coachQuestions = ((employeeInsight?.coachQuestions?.length)
+    ? employeeInsight.coachQuestions
+    : [
+        selectedWeek?.problemSummary || "本周期问题暴露不足，建议补充真实卡点。",
+        selectedWeek?.nextPlanSummary || "本周期暂无下周计划摘要。",
+        "历史周报用于回看成长轨迹；当周任务候选只在最新周期生成。",
+      ]
+  ).slice(0, 3);
+
   return (
-    <div className="page-stack">
-      <section className="employee-toolbar">
-        <div>
-          <span className="section-label">Personal Growth</span>
-          <h2>{employee.name} · {employee.department}</h2>
+    <div className="v2-page">
+      <section className="v2-hero">
+        {employeeOptions.length > 1 ? (
+          <div className="v2-hero-bar">
+            <select
+              className="v2-hero-select"
+              value={employee.name}
+              onChange={(event) => onSelectEmployee(event.target.value)}
+              aria-label="切换查看成员"
+            >
+              {employeeOptions.map((item) => (
+                <option value={item.name} key={item.name}>
+                  {item.name} · {item.department}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+        <div className="v2-hero-top">
+          <div>
+            <p className="v2-hero-greeting">
+              {greeting}，{employee.name} · {employee.department}
+            </p>
+            <h2 className="v2-hero-summary">{heroSummary}</h2>
+            <div className="v2-hero-chips">
+              <span className="v2-hero-chip">成长等级 {employee.level}</span>
+              <span className="v2-hero-chip">{employee.reportCount} 周成长记录</span>
+              <span className="v2-hero-chip">迟交 {employee.lateCount} 次</span>
+              {closureInsight ? <span className="v2-hero-chip">{closureInsight.persona}</span> : null}
+            </div>
+          </div>
+          <div className="v2-hero-score">
+            <span className="v2-hero-score-num">{latestWeekTotal}</span>
+            <span className="v2-hero-score-label">本周周报评分</span>
+            <span className={`v2-hero-score-delta ${weekDelta < 0 ? "is-down" : ""}`}>
+              <TrendingUp size={13} />
+              {weekDelta >= 0 ? "+" : ""}
+              {weekDelta} vs 上周
+            </span>
+          </div>
         </div>
-        <select value={employee.name} onChange={(event) => onSelectEmployee(event.target.value)}>
-          {employeeOptions.map((item) => (
-            <option value={item.name} key={item.name}>
-              {item.name} · {item.department}
-            </option>
-          ))}
-        </select>
+        {growthTrendWeeks.length > 1 ? (
+          <div className="v2-hero-spark">
+            <div className="v2-hero-spark-label">
+              <span>近 {growthTrendWeeks.length} 周走势</span>
+              <span>均分 {employee.averageScore}</span>
+            </div>
+            <Sparkline
+              values={growthTrendWeeks.map((week) => week.total)}
+              labels={growthTrendWeeks.map((week) => formatWeekPeriod(week.week))}
+            />
+          </div>
+        ) : null}
       </section>
 
-      <section className="personal-grid">
-        <article className="panel profile-score">
-          <div className="profile-avatar">{employee.name.slice(0, 1)}</div>
-          <div>
-            <span>周报成长评分</span>
-            <strong>{employee.averageScore}</strong>
-            <p>{employee.level} · {employee.reportCount} 周记录 · 迟交 {employee.lateCount}</p>
-          </div>
-          <Sparkline
-            values={growthTrendWeeks.map((week) => week.total)}
-            labels={growthTrendWeeks.map((week) => formatWeekPeriod(week.week))}
-            showPoints
-          />
-        </article>
-
-        <article className="panel radar-panel">
-          <div className="panel-heading compact">
-            <div>
-              <span className="section-label">Growth Radar</span>
-              <h2>能力与意识成长</h2>
+      {topCandidateDisplay ? (
+        <section className="v2-focus">
+          <span className="v2-focus-flag">
+            <Crosshair size={14} />
+            本周焦点 · 最重要的一件事
+          </span>
+          <h3 className="v2-focus-title">{topCandidateDisplay.title}</h3>
+          <p className="v2-focus-desc">{topCandidateDisplay.description}</p>
+          <div className="v2-focus-steps">
+            <div className="v2-focus-step">
+              <span className="v2-focus-step-label">
+                <Target size={13} />
+                第一步怎么做
+              </span>
+              <p>{topCandidateDisplay.firstStep || "把目标缩小到 3 天内能完成的一件事，并在飞书任务里写清验收物。"}</p>
             </div>
-            <TrendingUp size={18} />
-          </div>
-          <RadarChart axes={radarFor(employee)} />
-        </article>
-
-        <article className="panel collaboration360-card">
-          <div>
-            <span className="section-label">Collaboration 360</span>
-            <h2>协同评分</h2>
-          </div>
-          {collaboration360 ? (
-            <>
-              <strong>{collaboration360.averageScore ?? "-"}</strong>
-              <p>
-                {collaboration360.level} · {collaboration360.submitted}/{collaboration360.expected} 已评 · 完成率 {collaboration360.completionRate}%
-              </p>
-              <div className="collaboration360-range">
-                <span>最低 {collaboration360.minScore ?? "-"}</span>
-                <span>最高 {collaboration360.maxScore ?? "-"}</span>
-              </div>
-            </>
-          ) : (
-            <p>当前周期暂无协同评分记录。</p>
-          )}
-        </article>
-
-        <article className="panel closure-card">
-          <div className="panel-heading compact">
-            <div>
-              <span className="section-label">Week Over Week</span>
-              <h2>上周承诺闭环卡</h2>
+            <div className="v2-focus-step">
+              <span className="v2-focus-step-label">
+                <CheckCircle2 size={13} />
+                验收口径
+              </span>
+              <p>{topCandidateDisplay.metric}</p>
             </div>
-            <Repeat2 size={18} />
+            <div className="v2-focus-step">
+              <span className="v2-focus-step-label">
+                <Lightbulb size={13} />
+                需要谁支持
+              </span>
+              <p>{topCandidateDisplay.supportNeeded || `先找 ${topCandidateDisplay.owner} 对齐口径；24 小时内无法推进，就升级给直属 Leader。`}</p>
+            </div>
+          </div>
+          <div className="v2-focus-actions">
+            <button className="v2-btn v2-btn-ghost" type="button" onClick={() => askAi(topCandidateDisplay)}>
+              <Sparkles size={15} />
+              <span>{aiAdviceCandidateId === topCandidateDisplay.id ? "收起 AI 执行方案" : "让 AI 帮我拆执行方案"}</span>
+            </button>
+            <span className="v2-task-note">AI 从本周周报拆解 · 建议闭环 {topCandidateDisplay.dueDate || "下周五"}</span>
+          </div>
+          {aiAdviceCandidateId === topCandidateDisplay.id ? renderAiAdvicePanel(topCandidateDisplay) : null}
+        </section>
+      ) : (
+        <section className="v2-focus">
+          <span className="v2-focus-flag">
+            <Crosshair size={14} />
+            本周焦点 · 最值得想清楚的一个问题
+          </span>
+          <h3 className="v2-focus-title">{coachQuestions[0]}</h3>
+          <p className="v2-focus-desc">来自 AI 教练的追问。不用现在回答——把它写进下周的计划里，用行动和证据回应。</p>
+        </section>
+      )}
+
+      <div className="v2-grid-2">
+        <section className="v2-card">
+          <div className="v2-card-head">
+            <div>
+              <span className="v2-eyebrow">
+                <Repeat2 size={13} />
+                承诺与证据
+              </span>
+              <h3 className="v2-card-title">上周说的，这周做到了吗</h3>
+            </div>
           </div>
           {closureInsight && latestClosure ? (
             <>
-              <div className="closure-score-row">
-                <strong>{closureInsight.score}</strong>
-                <span className={`closure-status ${closureStatusTone(latestClosure.status)}`}>
-                  {closureStatusLabel[latestClosure.status]}
-                </span>
-                <em>{closureInsight.persona}</em>
+              <div className="v2-closure-score">
+                <span className="v2-closure-num">{closureInsight.score}</span>
+                <div className="v2-closure-meta">
+                  <span
+                    className={`v2-pill ${
+                      closureStatusTone(latestClosure.status) === "is-good"
+                        ? "v2-pill-green"
+                        : closureStatusTone(latestClosure.status) === "is-watch"
+                          ? "v2-pill-amber"
+                          : "v2-pill-risk"
+                    }`}
+                  >
+                    {closureStatusLabel[latestClosure.status]}
+                  </span>
+                  <span>
+                    {closureInsight.persona} · 跨周闭环力
+                  </span>
+                  {closurePairs.length > 0 ? (
+                    <span className="v2-streak">
+                      {closurePairs.map((pair) => (
+                        <i
+                          key={pair.id}
+                          className={`v2-streak-dot ${pair.status === "closed" ? "is-on" : ""}`}
+                          title={`${pair.currentWeek} ${closureStatusLabel[pair.status]}`}
+                        />
+                      ))}
+                    </span>
+                  ) : null}
+                </div>
               </div>
-              <div className="closure-evidence-grid">
-                <div>
+              <div className="v2-compare">
+                <div className="v2-compare-item">
                   <span>上周承诺</span>
                   <p>{latestClosure.previousPlan || "上周计划不够明确。"}</p>
                 </div>
-                <div>
+                <div className="v2-compare-arrow">
+                  <ArrowRight size={16} />
+                </div>
+                <div className="v2-compare-item">
                   <span>本周证据</span>
                   <p>{latestClosure.currentEvidence ? truncate(latestClosure.currentEvidence, 180) : "本周缺少回应证据。"}</p>
                 </div>
               </div>
-              <div className="closure-judgement">
+              <div className="v2-closure-judge">
                 <strong>{latestClosure.signal}</strong>
                 <p>{latestClosure.nextStep}</p>
               </div>
-              <div className="closure-mini-stats">
-                <span>闭环 {closureInsight.closedCount}</span>
-                <span>风险 {closureInsight.riskCount}</span>
-                <span>机制 {closureInsight.mechanismCount}</span>
-                <span><Brain size={13} /> AI协同 {closureInsight.aiThinkingScore}</span>
+              <div className="v2-closure-stats">
+                <span className="v2-pill v2-pill-green">闭环 {closureInsight.closedCount}</span>
+                <span className="v2-pill v2-pill-neutral">风险 {closureInsight.riskCount}</span>
+                <span className="v2-pill v2-pill-neutral">机制 {closureInsight.mechanismCount}</span>
+                <span className="v2-pill v2-pill-neutral">
+                  <Brain size={12} />
+                  AI 协同 {closureInsight.aiThinkingScore}
+                </span>
               </div>
             </>
           ) : (
-            <p className="closure-empty">至少需要连续两周周报，才能判断上周计划是否被本周结果回应。</p>
+            <p className="v2-empty-hint">至少需要连续两周周报，才能判断上周计划是否被本周结果回应。</p>
           )}
-        </article>
+        </section>
 
-        <article className="panel ai-feedback-panel">
-          <div className="panel-heading compact">
+        <section className="v2-card">
+          <div className="v2-card-head">
             <div>
-              <span className="section-label">{isCurrentPeriod ? "AI Coach" : "History Review"}</span>
-              <h2>{isCurrentPeriod ? "周报 AI 点评" : "历史周期周报摘要"}</h2>
+              <span className="v2-eyebrow">
+                <TrendingUp size={13} />
+                成长画像
+              </span>
+              <h3 className="v2-card-title">能力与意识的形状</h3>
             </div>
-            <MessageCircleQuestion size={18} />
           </div>
-          <p className="coach-body">
-            {employeeInsight?.coachSummary || (isCurrentPeriod
+          <div className="v2-profile-grid">
+            <div className="v2-profile-radar">
+              <RadarChart axes={radarFor(employee)} />
+            </div>
+            <div className="v2-profile-side">
+              <div className="v2-profile-block">
+                <span>同事眼中的你 · 协同 360</span>
+                {collaboration360 ? (
+                  <>
+                    <div className="v2-profile-360">
+                      <strong>{collaboration360.averageScore ?? "-"}</strong>
+                      <span>
+                        {collaboration360.level} · {collaboration360.submitted}/{collaboration360.expected} 人已评
+                      </span>
+                    </div>
+                    <p className="v2-profile-note">
+                      评分区间 {collaboration360.minScore ?? "-"} ~ {collaboration360.maxScore ?? "-"}，完成率 {collaboration360.completionRate}%。
+                    </p>
+                  </>
+                ) : (
+                  <p className="v2-profile-note">当前周期暂无协同评分记录。</p>
+                )}
+              </div>
+              <div className="v2-profile-block">
+                <span>本周期状态</span>
+                <p className="v2-profile-note">
+                  {employee.reportCount} 周记录 · 准时 {employee.onTimeCount} 次 · 均分 {employee.averageScore}（{employee.level}）。
+                  {employee.calibrationNote || "保持稳定节奏，下一周继续用证据说话。"}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section className="v2-card">
+        <div className="v2-card-head">
+          <div>
+            <span className="v2-eyebrow">
+              <MessageCircleQuestion size={13} />
+              AI 教练
+            </span>
+            <h3 className="v2-card-title">{isCurrentPeriod ? "本周点评与追问" : "历史周期回顾"}</h3>
+          </div>
+        </div>
+        <p className="v2-coach-summary">
+          {employeeInsight?.coachSummary ||
+            (isCurrentPeriod
               ? feedback?.body || employee.growthSummary
               : selectedWeek
                 ? `${selectedWeek.week}：${selectedWeek.resultSummary}`
                 : "该周期暂无可见周报记录。")}
-          </p>
-          {!isCurrentPeriod && selectedWeek?.reflectionSummary ? (
-            <p className="coach-body is-secondary">{selectedWeek.reflectionSummary}</p>
-          ) : null}
-          <div className="coach-questions">
-            {((employeeInsight?.coachQuestions?.length)
-              ? employeeInsight.coachQuestions
-              : [
-                  selectedWeek?.problemSummary || "本周期问题暴露不足，建议补充真实卡点。",
-                  selectedWeek?.nextPlanSummary || "本周期暂无下周计划摘要。",
-                  "历史周报用于回看成长轨迹；当周任务候选只在最新周期生成。",
-                ]
-            ).slice(0, 3).map((question, index) => (
-              <div key={question}>
-                <strong>{index === 0 ? "教练式提问" : index === 1 ? "自我对照" : "支持请求"}</strong>
-                <span>{question}</span>
-              </div>
-            ))}
-          </div>
-        </article>
+        </p>
+        {!isCurrentPeriod && selectedWeek?.reflectionSummary ? (
+          <p className="v2-coach-summary is-secondary">{selectedWeek.reflectionSummary}</p>
+        ) : null}
+        <div className="v2-coach-questions">
+          {coachQuestions.map((question, index) => (
+            <div className="v2-coach-question" key={question}>
+              <span className="v2-coach-question-tag">{index === 0 ? "教练提问" : index === 1 ? "自我对照" : "支持请求"}</span>
+              <p>{question}</p>
+            </div>
+          ))}
+        </div>
+      </section>
 
-        <article className="panel interaction-panel">
-          <div className="panel-heading compact">
-            <div>
-              <span className="section-label">Current Report</span>
-              <h2>本周期完整周报</h2>
-            </div>
-            {social.published ? <Globe2 size={18} /> : <LockKeyhole size={18} />}
+      <section className="v2-card">
+        <div className="v2-card-head">
+          <div>
+            <span className="v2-eyebrow">
+              <BookOpen size={13} />
+              本周周报
+            </span>
+            <h3 className="v2-card-title">{selectedWeek ? `${selectedWeek.week} 的完整记录` : "本周期完整周报"}</h3>
           </div>
-          {selectedWeek ? (
-            <div className="current-report-body">
-              <div>
-                <strong>本周成果</strong>
-                <p>{selectedWeek.resultSummary || "本周期暂无成果正文。"}</p>
-              </div>
-              <div>
-                <strong>问题与挑战</strong>
-                <p>{selectedWeek.problemSummary || "本周期暂无问题正文。"}</p>
-              </div>
-              <div>
-                <strong>下周计划</strong>
-                <p>{selectedWeek.nextPlanSummary || "本周期暂无计划正文。"}</p>
-              </div>
-              {selectedWeek.reflectionSummary ? (
-                <div>
-                  <strong>思考与复盘</strong>
-                  <p>{selectedWeek.reflectionSummary}</p>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <p className="current-report-empty">该周期暂无可见周报原文。</p>
-          )}
-          <div className="panel-heading compact interaction-subheading">
-            <div>
-              <span className="section-label">Interaction</span>
-              <h2>互动与可见性</h2>
-            </div>
-          </div>
-          <div className="social-actions">
-            <button
-              className={`social-button ${social.liked ? "is-active" : ""}`}
-              type="button"
-              onClick={toggleLike}
-            >
-              <ThumbsUp size={16} />
+          <div className="v2-social-row is-compact">
+            <button className={`v2-social-btn ${social.liked ? "is-active" : ""}`} type="button" onClick={toggleLike}>
+              <ThumbsUp size={14} />
               <span>{social.likes} 个赞</span>
             </button>
             <button
-              className={`social-button ${social.published ? "is-active" : ""}`}
+              className={`v2-social-btn ${social.published ? "is-active" : ""}`}
               type="button"
               onClick={() => patchSocial({ published: !social.published })}
             >
-              {social.published ? <Globe2 size={16} /> : <LockKeyhole size={16} />}
-              <span>{social.published ? "已全员可见" : "仅权限内可见"}</span>
+              {social.published ? <Globe2 size={14} /> : <LockKeyhole size={14} />}
+              <span>{social.published ? "全员可见" : "仅权限内可见"}</span>
             </button>
           </div>
-          <div className="comment-list">
-            {social.comments.map((comment) => (
-              <p key={comment}>{comment}</p>
-            ))}
-          </div>
-          <div className="comment-box">
-            <textarea
-              value={commentDraft}
-              onChange={(event) => setCommentDraft(event.target.value)}
-              placeholder="写一条评论：可以是老板回应、同事建议，或把亮点标记给下周 AI 分析。"
-            />
-            <button className="primary-button" type="button" onClick={submitComment}>
-              <MessageSquarePlus size={16} />
-              <span>提交评论</span>
-            </button>
-          </div>
-        </article>
-
-        <article className="panel timeline-panel">
-          <div className="panel-heading compact">
-            <div>
-              <span className="section-label">Timeline</span>
-              <h2>过去几周周报记录</h2>
+        </div>
+        {selectedWeek ? (
+          <div className="v2-report-grid">
+            <div className="v2-report-block">
+              <strong>本周成果</strong>
+              <p>{selectedWeek.resultSummary || "本周期暂无成果正文。"}</p>
             </div>
-          </div>
-          <div className="week-timeline">
-            {weeks.map((week) => {
-              const id = weekCardId(week);
-              const expanded = Boolean(expandedWeekIds[id]);
-              const problemText = week.problemSummary || "本周问题暴露不足，建议补充真实卡点。";
-              const hasMore =
-                week.resultSummary.length > COLLAPSED_RESULT_LENGTH ||
-                problemText.length > COLLAPSED_PROBLEM_LENGTH ||
-                Boolean(week.nextPlanSummary);
-
-              return (
-                <div className={`week-card ${expanded ? "is-expanded" : ""}`} key={id}>
-                  <div>
-                    <strong>{week.week}</strong>
-                    <span>{week.status}</span>
-                  </div>
-                  <p>{expanded ? week.resultSummary : truncate(week.resultSummary, COLLAPSED_RESULT_LENGTH)}</p>
-                  <small>{expanded ? problemText : truncate(problemText, COLLAPSED_PROBLEM_LENGTH)}</small>
-                  {expanded && week.nextPlanSummary ? (
-                    <small className="week-plan">
-                      <b>下周计划：</b>
-                      {week.nextPlanSummary}
-                    </small>
-                  ) : null}
-                  {hasMore ? (
-                    <button className="week-expand-button" type="button" onClick={() => toggleWeekCard(id)}>
-                      {expanded ? "收起" : "展开全文"}
-                    </button>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </article>
-
-        <article className="panel personal-task-panel">
-          <div className="panel-heading compact">
-            <div>
-              <span className="section-label">Task Loop</span>
-              <h2>AI 拆解的任务候选</h2>
+            <div className="v2-report-block">
+              <strong>问题与挑战</strong>
+              <p>{selectedWeek.problemSummary || "本周期暂无问题正文。"}</p>
             </div>
-            <Target size={18} />
-          </div>
-          <div className="task-candidate-summary">
-            <div>
-              <span>{isCurrentPeriod ? `预处理已从 ${sourceClueCount} 条周报线索拆出 ${taskCandidates.length} 个候选任务` : `${selectedPeriod?.label || "历史周期"}历史回看：展示当期 AI 任务候选，不直接创建飞书任务`}</span>
-              <strong>已选 {selectedCandidates.length} 个 · 已创建 {createdCount} 个{validatedCount ? ` · 已校验 ${validatedCount} 个` : ""}</strong>
+            <div className="v2-report-block">
+              <strong>下周计划</strong>
+              <p>{selectedWeek.nextPlanSummary || "本周期暂无计划正文。"}</p>
             </div>
-            <button className="ask-ai-button" type="button" onClick={() => askAi()} disabled={taskCandidates.length === 0}>
-              <Sparkles size={16} />
-              <span>{aiAdviceCandidate ? "收起 AI 方案" : "展开 AI 执行方案"}</span>
-            </button>
+            {selectedWeek.reflectionSummary ? (
+              <div className="v2-report-block">
+                <strong>思考与复盘</strong>
+                <p>{selectedWeek.reflectionSummary}</p>
+              </div>
+            ) : null}
           </div>
-          <div className="task-candidate-list">
-            {taskCandidates.map((candidate) => {
-              const checked = candidateSelection[candidate.id] ?? candidate.defaultSelected;
-              const created = createdCandidateIds[candidate.id];
-              const validated = validatedCandidateIds[candidate.id] && !created;
-              const displayCandidate = editedCandidate(candidate);
-              return (
-                <div className={`task-candidate-row ${checked ? "is-selected" : ""}`} key={candidate.id}>
-                  <button
-                    className="check-button"
-                    type="button"
-                    aria-label={checked ? "取消选择任务" : "选择任务"}
-                    onClick={() => toggleCandidate(candidate.id, candidate.defaultSelected)}
-                  >
-                    {checked ? <CheckSquare2 size={18} /> : <Square size={18} />}
-                  </button>
-                  <div className="task-candidate-main">
-                    <div className="task-candidate-title">
-                      <PriorityBadge priority={displayCandidate.priority} />
-                      <input
-                        aria-label="编辑任务标题"
-                        className="candidate-title-input"
-                        value={displayCandidate.title}
-                        onChange={(event) => updateCandidateEdit(candidate, "title", event.target.value)}
-                      />
-                      <span className={created ? "created" : validated ? "validated" : "pending"}>
-                        {created ? <CheckCircle2 size={14} /> : null}
-                        {created ? "已创建" : validated ? "已校验" : "待创建"}
-                      </span>
-                    </div>
-                    <textarea
-                      aria-label="编辑任务正文"
-                      className="candidate-description-input"
-                      value={displayCandidate.description}
-                      onChange={(event) => updateCandidateEdit(candidate, "description", event.target.value)}
-                    />
-                    <span className="candidate-edit-note">{isCurrentPeriod ? "标题和正文会按当前编辑内容创建飞书任务。" : "历史周期仅用于回看当时 AI 拆解，不直接创建飞书任务。"}</span>
-                    <div className="candidate-meta">
-                      <span>负责人：{displayCandidate.owner}</span>
-                      <label className="candidate-date-field">
-                        <span>建议闭环</span>
-                        <input
-                          aria-label="编辑建议闭环日期"
-                          value={displayCandidate.dueDate}
-                          onChange={(event) => updateCandidateEdit(candidate, "dueDate", event.target.value)}
-                          placeholder="留空则不设截止"
-                        />
-                      </label>
-                      <button className={aiAdviceCandidateId === candidate.id ? "is-active" : ""} type="button" onClick={() => askAi(displayCandidate)}>
-                        <Sparkles size={13} />
-                        <span>{aiAdviceCandidateId === candidate.id ? "收起方案" : "展开方案"}</span>
-                      </button>
-                    </div>
-                    <label className="candidate-detail-editor">
-                      <span>衡量指标</span>
-                      <textarea
-                        aria-label="编辑衡量指标"
-                        value={displayCandidate.metric}
-                        onChange={(event) => updateCandidateEdit(candidate, "metric", event.target.value)}
-                      />
-                    </label>
-                    <label className="candidate-detail-editor">
-                      <span>证据</span>
-                      <textarea
-                        aria-label="编辑周报证据"
-                        value={displayCandidate.evidence}
-                        onChange={(event) => updateCandidateEdit(candidate, "evidence", event.target.value)}
-                      />
-                    </label>
-                    {aiAdviceCandidateId === candidate.id ? renderAiAdvicePanel(displayCandidate) : null}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="task-create-bar">
-            <p>
-              {taskCreateState === "error"
-                ? taskCreateMessage || "任务接口暂未成功，请确认后端服务和飞书权限配置。"
-                : taskCreateState === "done"
-                  ? taskCreateMessage || "已提交到后端；当前登录人会作为创建者和关注者写入请求。"
-                : isCurrentPeriod
-                  ? "只把勾选的候选任务创建到飞书；标题、正文、衡量指标、证据会按当前编辑内容写入，建议闭环日期需手动改过才写入截止时间。"
-                  : "历史周期用于回看当期 AI 判断，不直接创建飞书任务。"}
+        ) : (
+          <p className="v2-empty-hint">该周期暂无可见周报原文。</p>
+        )}
+        <div className="v2-comment-list">
+          {social.comments.map((comment) => (
+            <p className="v2-comment-item" key={comment}>
+              {comment}
             </p>
-            <button className="primary-button" type="button" onClick={createSelectedTasks} disabled={!isCurrentPeriod || selectedCandidates.length === 0 || taskCreateState === "creating"}>
-              <Send size={16} />
-              <span>{taskCreateState === "creating" ? "正在提交" : "创建选中飞书任务"}</span>
-            </button>
+          ))}
+        </div>
+        <div className="v2-comment-box">
+          <textarea
+            value={commentDraft}
+            onChange={(event) => setCommentDraft(event.target.value)}
+            placeholder="写一条评论：可以是老板回应、同事建议，或把亮点标记给下周 AI 分析。"
+          />
+          <button className="v2-btn v2-btn-primary" type="button" onClick={submitComment}>
+            <MessageSquarePlus size={15} />
+            <span>提交评论</span>
+          </button>
+        </div>
+      </section>
+
+      <section className="v2-card">
+        <div className="v2-card-head">
+          <div>
+            <span className="v2-eyebrow">
+              <Target size={13} />
+              行动清单
+            </span>
+            <h3 className="v2-card-title">AI 从周报拆出的任务候选</h3>
+            <p className="v2-card-sub">
+              {isCurrentPeriod
+                ? `预处理已从 ${sourceClueCount} 条周报线索拆出 ${taskCandidates.length} 个候选；勾选、修改后一键创建飞书任务。`
+                : `${selectedPeriod?.label || "历史周期"}回看：展示当期 AI 候选，不直接创建飞书任务。`}
+            </p>
           </div>
-        </article>
+          <button className="v2-btn v2-btn-ghost" type="button" onClick={() => askAi()} disabled={taskCandidates.length === 0}>
+            <Sparkles size={15} />
+            <span>{aiAdviceCandidate ? "收起 AI 方案" : "展开 AI 方案"}</span>
+          </button>
+        </div>
+        <div className="v2-task-summary">
+          <div className="v2-task-summary-text">
+            <span>{isCurrentPeriod ? "确认无误后，只把勾选的候选创建到飞书。" : "历史周期仅用于回看当时的 AI 判断。"}</span>
+            <strong>
+              已选 {selectedCandidates.length} 个 · 已创建 {createdCount} 个{validatedCount ? ` · 已校验 ${validatedCount} 个` : ""}
+            </strong>
+          </div>
+        </div>
+        {taskCandidates.length === 0 ? (
+          <p className="v2-empty-hint">本周期暂无可拆解的任务候选；写好下周计划后，AI 会自动给出建议动作。</p>
+        ) : null}
+        {taskCandidates.map((candidate) => {
+          const checked = candidateSelection[candidate.id] ?? candidate.defaultSelected;
+          const created = createdCandidateIds[candidate.id];
+          const validated = validatedCandidateIds[candidate.id] && !created;
+          const displayCandidate = editedCandidate(candidate);
+          return (
+            <div className={`v2-task-row ${checked ? "is-selected" : ""}`} key={candidate.id}>
+              <button
+                className="v2-task-check"
+                type="button"
+                aria-label={checked ? "取消选择任务" : "选择任务"}
+                onClick={() => toggleCandidate(candidate.id, candidate.defaultSelected)}
+              >
+                {checked ? <CheckSquare2 size={19} /> : <Square size={19} />}
+              </button>
+              <div className="v2-task-main">
+                <div className="v2-task-title-line">
+                  <PriorityBadge priority={displayCandidate.priority} />
+                  <input
+                    aria-label="编辑任务标题"
+                    className="v2-task-title-input"
+                    value={displayCandidate.title}
+                    onChange={(event) => updateCandidateEdit(candidate, "title", event.target.value)}
+                  />
+                  <span className={`v2-task-status ${created ? "is-created" : validated ? "is-validated" : "is-pending"}`}>
+                    {created ? <CheckCircle2 size={13} /> : null}
+                    {created ? "已创建" : validated ? "已校验" : "待创建"}
+                  </span>
+                </div>
+                <textarea
+                  aria-label="编辑任务正文"
+                  className="v2-task-desc-input"
+                  value={displayCandidate.description}
+                  onChange={(event) => updateCandidateEdit(candidate, "description", event.target.value)}
+                />
+                <span className="v2-task-note">
+                  {isCurrentPeriod ? "标题和正文会按当前编辑内容创建飞书任务。" : "历史周期仅用于回看，不直接创建飞书任务。"}
+                </span>
+                <div className="v2-task-meta">
+                  <span>负责人：{displayCandidate.owner}</span>
+                  <label className="v2-task-date">
+                    <span>建议闭环</span>
+                    <input
+                      aria-label="编辑建议闭环日期"
+                      value={displayCandidate.dueDate}
+                      onChange={(event) => updateCandidateEdit(candidate, "dueDate", event.target.value)}
+                      placeholder="留空则不设截止"
+                    />
+                  </label>
+                  <button
+                    className={`v2-task-link-btn ${aiAdviceCandidateId === candidate.id ? "is-active" : ""}`}
+                    type="button"
+                    onClick={() => askAi(displayCandidate)}
+                  >
+                    <Sparkles size={13} />
+                    <span>{aiAdviceCandidateId === candidate.id ? "收起方案" : "AI 方案"}</span>
+                  </button>
+                </div>
+                <div className="v2-task-detail">
+                  <label>
+                    <span>衡量指标</span>
+                    <textarea
+                      aria-label="编辑衡量指标"
+                      value={displayCandidate.metric}
+                      onChange={(event) => updateCandidateEdit(candidate, "metric", event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>证据</span>
+                    <textarea
+                      aria-label="编辑周报证据"
+                      value={displayCandidate.evidence}
+                      onChange={(event) => updateCandidateEdit(candidate, "evidence", event.target.value)}
+                    />
+                  </label>
+                </div>
+                {aiAdviceCandidateId === candidate.id ? renderAiAdvicePanel(displayCandidate) : null}
+              </div>
+            </div>
+          );
+        })}
+        <div className="v2-task-create-bar">
+          <p>
+            {taskCreateState === "error"
+              ? taskCreateMessage || "任务接口暂未成功，请确认后端服务和飞书权限配置。"
+              : taskCreateState === "done"
+                ? taskCreateMessage || "已提交到后端；当前登录人会作为创建者和关注者写入请求。"
+                : isCurrentPeriod
+                  ? "标题、正文、衡量指标、证据按当前编辑内容写入；建议闭环日期手动改过才会写入截止时间。"
+                  : "历史周期用于回看当期 AI 判断，不直接创建飞书任务。"}
+          </p>
+          <button
+            className="v2-btn v2-btn-primary"
+            type="button"
+            onClick={createSelectedTasks}
+            disabled={!isCurrentPeriod || selectedCandidates.length === 0 || taskCreateState === "creating"}
+          >
+            <Send size={15} />
+            <span>{taskCreateState === "creating" ? "正在提交" : "创建选中飞书任务"}</span>
+          </button>
+        </div>
+      </section>
+
+      <section className="v2-card">
+        <div className="v2-card-head">
+          <div>
+            <span className="v2-eyebrow">
+              <BookOpen size={13} />
+              成长时间线
+            </span>
+            <h3 className="v2-card-title">过去几周的足迹</h3>
+          </div>
+        </div>
+        <div className="v2-timeline">
+          {weeks.map((week) => {
+            const id = weekCardId(week);
+            const expanded = Boolean(expandedWeekIds[id]);
+            const problemText = week.problemSummary || "本周问题暴露不足，建议补充真实卡点。";
+            const hasMore =
+              week.resultSummary.length > COLLAPSED_RESULT_LENGTH ||
+              problemText.length > COLLAPSED_PROBLEM_LENGTH ||
+              Boolean(week.nextPlanSummary);
+
+            return (
+              <div className="v2-timeline-item" key={id}>
+                <div className="v2-timeline-head">
+                  <strong>{week.week}</strong>
+                  <span className="v2-pill v2-pill-neutral">{week.status}</span>
+                  <span className="v2-pill v2-pill-green">{week.total} 分</span>
+                </div>
+                <p>{expanded ? week.resultSummary : truncate(week.resultSummary, COLLAPSED_RESULT_LENGTH)}</p>
+                <small>{expanded ? problemText : truncate(problemText, COLLAPSED_PROBLEM_LENGTH)}</small>
+                {expanded && week.nextPlanSummary ? (
+                  <small className="week-plan">
+                    <b>下周计划：</b>
+                    {week.nextPlanSummary}
+                  </small>
+                ) : null}
+                {hasMore ? (
+                  <button className="v2-timeline-toggle" type="button" onClick={() => toggleWeekCard(id)}>
+                    {expanded ? "收起" : "展开全文"}
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
       </section>
     </div>
   );
