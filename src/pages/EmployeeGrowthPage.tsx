@@ -271,8 +271,23 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
   const visibleNames = new Set(visibleEmployees.map((item) => item.name).filter(Boolean));
   const employeeOptions = visibleNames.size > 0
     ? appData.employeeSummary.filter((item) => visibleNames.has(item.name))
-    : appData.employeeSummary;
-  const employee = employeeOptions.find((item) => item.name === selectedEmployee) ?? employeeOptions[0] ?? appData.employeeSummary[0];
+    : [];
+  const employee = employeeOptions.find((item) => item.name === selectedEmployee) ?? employeeOptions[0];
+
+  if (!employee) {
+    return (
+      <div className="v2-page v3-workbench-page">
+        <section className="v2-hero v3-summary-band">
+          <div className="v2-hero-top">
+            <div>
+              <p className="v2-hero-greeting">当前账号暂无可见周报</p>
+              <h2 className="v2-hero-summary">系统不会自动代入其他同事的数据，请联系管理员核对账号与可见范围。</h2>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
   const closureInsight = closureForEmployee(employee.name);
   const collaboration360 = scoring360ResultForEmployee(employee.name);
   const selectedPeriod = reportPeriods.find((period) => period.id === selectedPeriodId) ?? reportPeriods.at(-1);

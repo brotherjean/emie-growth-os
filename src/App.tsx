@@ -12,13 +12,6 @@ import { TasksPage } from "./pages/TasksPage";
 import { TrendsPage } from "./pages/TrendsPage";
 import type { UserAccess } from "./lib/types";
 
-const fallbackVisibleEmployees = appData.employeeSummary.slice(0, 1).map((employee) => ({
-  openId: employee.openId,
-  name: employee.name,
-  department: employee.department,
-  email: employee.email,
-}));
-
 const fallbackAccess: UserAccess = {
   role: "member",
   bossView: false,
@@ -26,17 +19,17 @@ const fallbackAccess: UserAccess = {
   canViewBossDashboard: false,
   canViewSettings: false,
   canManageScoring360: false,
-  currentEmployee: fallbackVisibleEmployees[0] || null,
+  currentEmployee: null,
   visibilityMode: "self_only",
-  visibleEmployees: fallbackVisibleEmployees,
-  visibleOpenIds: fallbackVisibleEmployees.map((employee) => employee.openId).filter(Boolean),
-  visibleNames: fallbackVisibleEmployees.map((employee) => employee.name).filter(Boolean),
-  visibleDepartments: Array.from(new Set(fallbackVisibleEmployees.map((employee) => employee.department).filter(Boolean))),
+  visibleEmployees: [],
+  visibleOpenIds: [],
+  visibleNames: [],
+  visibleDepartments: [],
 };
 
 export function App() {
   const [activePage, setActivePage] = useState<PageKey>("growth");
-  const [selectedEmployee, setSelectedEmployee] = useState(appData.employeeSummary[0]?.name ?? "");
+  const [selectedEmployee, setSelectedEmployee] = useState("");
   const [selectedPeriodId, setSelectedPeriodId] = useState(appData.currentWeekId || appData.periods.at(-1)?.id || "");
   const [taskCreated, setTaskCreated] = useState(false);
   const [summaryReady, setSummaryReady] = useState(false);
@@ -55,6 +48,11 @@ export function App() {
     async function loadMe() {
       try {
         const response = await fetch("/api/me");
+        if (response.status === 401) {
+          const next = `${window.location.pathname}${window.location.search}`;
+          window.location.assign(`/auth/login?next=${encodeURIComponent(next)}`);
+          return;
+        }
         if (!response.ok) throw new Error("load_me_failed");
         const result = await response.json();
         const nextAccess = normalizeAccess(result.access, result.user);
@@ -69,7 +67,7 @@ export function App() {
         });
         setSelectedEmployee((name) => {
           if (nextAccess.visibleEmployees.some((employee) => employee.name === name)) return name;
-          return nextAccess.visibleEmployees[0]?.name || name;
+          return nextAccess.currentEmployee?.name || nextAccess.visibleEmployees[0]?.name || "";
         });
       } catch {
         setAccess(fallbackAccess);
@@ -201,9 +199,7 @@ export function App() {
 
 function normalizeAccess(value: unknown, user: any): UserAccess {
   const record = value && typeof value === "object" ? value as Partial<UserAccess> : {};
-  const visibleEmployees = Array.isArray(record.visibleEmployees) && record.visibleEmployees.length > 0
-    ? record.visibleEmployees
-    : fallbackAccess.visibleEmployees;
+  const visibleEmployees = Array.isArray(record.visibleEmployees) ? record.visibleEmployees : [];
   return {
     role: String(record.role || user?.role || "member"),
     bossView: Boolean(record.bossView || user?.bossView),
