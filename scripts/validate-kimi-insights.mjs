@@ -33,7 +33,9 @@ async function main() {
     ? { executiveSummary: 1, attentionQueue: 1, themes: 1, mustReadReports: 1, tasksPerEmployee: 1 }
     : { executiveSummary: 3, attentionQueue: 6, themes: 5, mustReadReports: 4, tasksPerEmployee: 2 };
 
-  const expectedEmployees = (raw.employee_summary ?? []).map((item) => item["姓名"]);
+  const expectedEmployees = (raw.employee_summary ?? [])
+    .filter((item) => item["在职状态"] !== "离职")
+    .map((item) => item["姓名"]);
   const expectedEmployeeSet = unique(expectedEmployees);
   const insightEmployees = (insights.employeeInsights ?? []).map((item) => item.name);
   const insightEmployeeSet = unique(insightEmployees);
