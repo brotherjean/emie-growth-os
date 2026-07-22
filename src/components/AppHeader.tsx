@@ -105,7 +105,7 @@ export function AppHeader({
   return (
     <header className="app-header">
       <div>
-        <h1>{titles[activePage]}</h1>
+        <h1>{activePage === "growth" && canViewBossDashboard ? "个人成长" : titles[activePage]}</h1>
         <div className="header-meta">
           <span>{currentPeriodLabel(selectedPeriodId)}</span>
           <span>数据生成：{appData.generatedOn}</span>

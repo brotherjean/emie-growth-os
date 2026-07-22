@@ -107,6 +107,8 @@ interface CandidateEdit {
   evidence: string;
 }
 
+type GrowthWorkspaceTab = "report" | "coach" | "actions" | "growth";
+
 const COLLAPSED_RESULT_LENGTH = 300;
 const COLLAPSED_PROBLEM_LENGTH = 220;
 
@@ -263,6 +265,7 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
   const [aiChatThreads, setAiChatThreads] = useState<Record<string, AiChatMessage[]>>({});
   const [aiChatLoadingIds, setAiChatLoadingIds] = useState<Record<string, boolean>>({});
   const [expandedWeekIds, setExpandedWeekIds] = useState<Record<string, boolean>>({});
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<GrowthWorkspaceTab>("report");
   const [taskCreateState, setTaskCreateState] = useState<"idle" | "creating" | "done" | "error">("idle");
   const [taskCreateMessage, setTaskCreateMessage] = useState("");
   const visibleNames = new Set(visibleEmployees.map((item) => item.name).filter(Boolean));
@@ -271,12 +274,15 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
     : appData.employeeSummary;
   const employee = employeeOptions.find((item) => item.name === selectedEmployee) ?? employeeOptions[0] ?? appData.employeeSummary[0];
   const closureInsight = closureForEmployee(employee.name);
-  const latestClosure = closureInsight?.latestPair;
   const collaboration360 = scoring360ResultForEmployee(employee.name);
   const selectedPeriod = reportPeriods.find((period) => period.id === selectedPeriodId) ?? reportPeriods.at(-1);
   const isCurrentPeriod = selectedPeriodId === appData.currentWeekId || selectedPeriod?.id === appData.currentWeekId;
+  const readOnly = externalView || !isCurrentPeriod;
   const chronologicalWeeks = weeklyForEmployee(employee.name).filter((week) => /^\d+月第/.test(week.week));
   const selectedWeek = selectedPeriod ? weeklyForEmployee(employee.name, selectedPeriod.id)[0] : chronologicalWeeks.at(-1);
+  const latestClosure = closureInsight?.pairs.find((pair) =>
+    pair.currentWeek === selectedPeriod?.label || pair.currentWeek.includes(selectedPeriod?.label || "__missing__"),
+  ) ?? (isCurrentPeriod ? closureInsight?.latestPair : undefined);
   const growthTrendWeeks = chronologicalWeeks.slice(-8);
   const weeks = [...chronologicalWeeks].reverse();
   const tasks = tasksForEmployee(employee.name).slice(0, 5);
@@ -323,6 +329,7 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
   }
 
   function submitComment() {
+    if (readOnly) return;
     const text = commentDraft.trim();
     if (!text) return;
     patchSocial({ comments: [...social.comments, `我：${text}`] });
@@ -343,6 +350,7 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
   }
 
   function toggleLike() {
+    if (readOnly) return;
     const nextLiked = !social.liked;
     patchSocial({ liked: nextLiked, likes: social.likes + (social.liked ? -1 : 1) });
     if (!nextLiked) return;
@@ -634,12 +642,12 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
             <textarea
               value={draft}
               onChange={(event) => setAiChatDrafts((current) => ({ ...current, [candidate.id]: event.target.value }))}
-              placeholder={externalView ? "外部顾问只读视图不能追问，退出只读后可继续提问。" : "继续问：第一步怎么做？需要谁支持？验收指标怎么定？"}
-              disabled={externalView}
+              placeholder={readOnly ? "历史周期或外部访问为只读，不能继续追问。" : "继续问：第一步怎么做？需要谁支持？验收指标怎么定？"}
+              disabled={readOnly}
             />
-            <button type="submit" disabled={!draft.trim() || loading || externalView}>
+            <button type="submit" disabled={!draft.trim() || loading || readOnly}>
               <Send size={15} />
-              <span>{externalView ? "只读" : loading ? "思考中" : "发送"}</span>
+              <span>{readOnly ? "只读" : loading ? "思考中" : "发送"}</span>
             </button>
           </form>
         </div>
@@ -649,13 +657,20 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
 
   const hour = new Date().getHours();
   const greeting = hour < 6 ? "夜深了" : hour < 12 ? "早上好" : hour < 18 ? "下午好" : "晚上好";
-  const latestWeekTotal = chronologicalWeeks.at(-1)?.total ?? employee.averageScore;
-  const previousWeekTotal = chronologicalWeeks.length > 1 ? chronologicalWeeks[chronologicalWeeks.length - 2].total : undefined;
-  const weekDelta = previousWeekTotal === undefined ? employee.trend : Math.round((latestWeekTotal - previousWeekTotal) * 10) / 10;
+  const selectedWeekIndex = selectedWeek
+    ? chronologicalWeeks.findIndex((week) => weekCardId(week) === weekCardId(selectedWeek))
+    : -1;
+  const selectedWeekTotal = selectedWeek?.total ?? chronologicalWeeks.at(-1)?.total ?? employee.averageScore;
+  const previousWeekTotal = selectedWeekIndex > 0 ? chronologicalWeeks[selectedWeekIndex - 1]?.total : undefined;
+  const weekDelta = previousWeekTotal === undefined
+    ? (isCurrentPeriod ? employee.trend : 0)
+    : Math.round((selectedWeekTotal - previousWeekTotal) * 10) / 10;
   const topCandidate = taskCandidates.find((candidate) => candidate.priority === "P0") ?? taskCandidates[0];
   const topCandidateDisplay = topCandidate ? editedCandidate(topCandidate) : null;
   const closurePairs = closureInsight?.pairs?.slice(-8) ?? [];
-  const heroSummary = employee.growthSummary || "持续记录、持续校准，让每一周都有被证据回应的进步。";
+  const heroSummary = employeeInsight?.coachSummary
+    || (isCurrentPeriod ? employee.growthSummary : selectedWeek?.resultSummary)
+    || "持续记录、持续校准，让每一周都有被证据回应的进步。";
   const coachQuestions = ((employeeInsight?.coachQuestions?.length)
     ? employeeInsight.coachQuestions
     : [
@@ -666,8 +681,8 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
   ).slice(0, 3);
 
   return (
-    <div className="v2-page">
-      <section className="v2-hero">
+    <div className="v2-page v3-workbench-page">
+      <section className="v2-hero v3-summary-band">
         {employeeOptions.length > 1 ? (
           <div className="v2-hero-bar">
             <select
@@ -689,21 +704,28 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
             <p className="v2-hero-greeting">
               {greeting}，{employee.name} · {employee.department}
             </p>
-            <h2 className="v2-hero-summary">{heroSummary}</h2>
+            <h2 className="v2-hero-summary">{truncate(heroSummary, 180)}</h2>
             <div className="v2-hero-chips">
-              <span className="v2-hero-chip">成长等级 {employee.level}</span>
-              <span className="v2-hero-chip">{employee.reportCount} 周成长记录</span>
-              <span className="v2-hero-chip">迟交 {employee.lateCount} 次</span>
+              <span className="v2-hero-chip">当期等级 {selectedWeek?.level || employee.level}</span>
+              <span className="v2-hero-chip">累计 {employee.reportCount} 周记录</span>
+              <span className="v2-hero-chip">累计迟交 {employee.lateCount} 次</span>
               {closureInsight ? <span className="v2-hero-chip">{closureInsight.persona}</span> : null}
+              {readOnly ? <span className="v2-hero-chip is-readonly">历史回看 · 只读</span> : null}
             </div>
           </div>
           <div className="v2-hero-score">
-            <span className="v2-hero-score-num">{latestWeekTotal}</span>
-            <span className="v2-hero-score-label">本周周报评分</span>
+            <span className="v2-hero-score-num">{selectedWeekTotal}</span>
+            <span className="v2-hero-score-label">{selectedPeriod?.label || "当期"}评分</span>
             <span className={`v2-hero-score-delta ${weekDelta < 0 ? "is-down" : ""}`}>
-              <TrendingUp size={13} />
-              {weekDelta >= 0 ? "+" : ""}
-              {weekDelta} vs 上周
+              {previousWeekTotal === undefined ? (
+                "首期记录"
+              ) : (
+                <>
+                  <TrendingUp size={13} />
+                  {weekDelta >= 0 ? "+" : ""}
+                  {weekDelta} vs 上期
+                </>
+              )}
             </span>
           </div>
         </div>
@@ -892,7 +914,26 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
         </section>
       </div>
 
-      <section className="v2-card">
+      <nav className="v3-workspace-tabs" aria-label="个人成长工作区">
+        {([
+          ["report", "周报与互动", BookOpen],
+          ["coach", "AI 教练", MessageCircleQuestion],
+          ["actions", "行动任务", Target],
+          ["growth", "成长轨迹", TrendingUp],
+        ] as const).map(([key, label, Icon]) => (
+          <button
+            className={activeWorkspaceTab === key ? "is-active" : ""}
+            type="button"
+            key={key}
+            onClick={() => setActiveWorkspaceTab(key)}
+          >
+            <Icon size={16} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
+
+      {activeWorkspaceTab === "coach" ? <section className="v2-card v3-workspace-panel">
         <div className="v2-card-head">
           <div>
             <span className="v2-eyebrow">
@@ -921,9 +962,9 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
             </div>
           ))}
         </div>
-      </section>
+      </section> : null}
 
-      <section className="v2-card">
+      {activeWorkspaceTab === "report" ? <section className="v2-card v3-workspace-panel">
         <div className="v2-card-head">
           <div>
             <span className="v2-eyebrow">
@@ -932,7 +973,7 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
             </span>
             <h3 className="v2-card-title">{selectedWeek ? `${selectedWeek.week} 的完整记录` : "本周期完整周报"}</h3>
           </div>
-          <div className="v2-social-row is-compact">
+          {!readOnly ? <div className="v2-social-row is-compact">
             <button className={`v2-social-btn ${social.liked ? "is-active" : ""}`} type="button" onClick={toggleLike}>
               <ThumbsUp size={14} />
               <span>{social.likes} 个赞</span>
@@ -945,7 +986,7 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
               {social.published ? <Globe2 size={14} /> : <LockKeyhole size={14} />}
               <span>{social.published ? "全员可见" : "仅权限内可见"}</span>
             </button>
-          </div>
+          </div> : <span className="v3-readonly-note"><LockKeyhole size={14} />历史回看 · 只读</span>}
         </div>
         {selectedWeek ? (
           <div className="v2-report-grid">
@@ -978,7 +1019,7 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
             </p>
           ))}
         </div>
-        <div className="v2-comment-box">
+        {!readOnly ? <div className="v2-comment-box">
           <textarea
             value={commentDraft}
             onChange={(event) => setCommentDraft(event.target.value)}
@@ -988,10 +1029,10 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
             <MessageSquarePlus size={15} />
             <span>提交评论</span>
           </button>
-        </div>
-      </section>
+        </div> : null}
+      </section> : null}
 
-      <section className="v2-card">
+      {activeWorkspaceTab === "actions" ? <section className="v2-card v3-workspace-panel">
         <div className="v2-card-head">
           <div>
             <span className="v2-eyebrow">
@@ -1033,6 +1074,7 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
                 type="button"
                 aria-label={checked ? "取消选择任务" : "选择任务"}
                 onClick={() => toggleCandidate(candidate.id, candidate.defaultSelected)}
+                disabled={readOnly}
               >
                 {checked ? <CheckSquare2 size={19} /> : <Square size={19} />}
               </button>
@@ -1044,6 +1086,7 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
                     className="v2-task-title-input"
                     value={displayCandidate.title}
                     onChange={(event) => updateCandidateEdit(candidate, "title", event.target.value)}
+                    disabled={readOnly}
                   />
                   <span className={`v2-task-status ${created ? "is-created" : validated ? "is-validated" : "is-pending"}`}>
                     {created ? <CheckCircle2 size={13} /> : null}
@@ -1055,6 +1098,7 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
                   className="v2-task-desc-input"
                   value={displayCandidate.description}
                   onChange={(event) => updateCandidateEdit(candidate, "description", event.target.value)}
+                  disabled={readOnly}
                 />
                 <span className="v2-task-note">
                   {isCurrentPeriod ? "标题和正文会按当前编辑内容创建飞书任务。" : "历史周期仅用于回看，不直接创建飞书任务。"}
@@ -1068,6 +1112,7 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
                       value={displayCandidate.dueDate}
                       onChange={(event) => updateCandidateEdit(candidate, "dueDate", event.target.value)}
                       placeholder="留空则不设截止"
+                      disabled={readOnly}
                     />
                   </label>
                   <button
@@ -1086,6 +1131,7 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
                       aria-label="编辑衡量指标"
                       value={displayCandidate.metric}
                       onChange={(event) => updateCandidateEdit(candidate, "metric", event.target.value)}
+                      disabled={readOnly}
                     />
                   </label>
                   <label>
@@ -1094,6 +1140,7 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
                       aria-label="编辑周报证据"
                       value={displayCandidate.evidence}
                       onChange={(event) => updateCandidateEdit(candidate, "evidence", event.target.value)}
+                      disabled={readOnly}
                     />
                   </label>
                 </div>
@@ -1122,9 +1169,9 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
             <span>{taskCreateState === "creating" ? "正在提交" : "创建选中飞书任务"}</span>
           </button>
         </div>
-      </section>
+      </section> : null}
 
-      <section className="v2-card">
+      {activeWorkspaceTab === "growth" ? <section className="v2-card v3-workspace-panel">
         <div className="v2-card-head">
           <div>
             <span className="v2-eyebrow">
@@ -1168,7 +1215,7 @@ export function EmployeeGrowthPage({ selectedPeriodId, selectedEmployee, onSelec
             );
           })}
         </div>
-      </section>
+      </section> : null}
     </div>
   );
 }

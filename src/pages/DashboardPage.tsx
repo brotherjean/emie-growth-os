@@ -34,7 +34,10 @@ import type { Scoring360Result } from "../lib/types";
 interface DashboardPageProps {
   selectedPeriodId: string;
   onOpenEmployee: (name: string) => void;
+  externalView?: boolean;
 }
+
+type DashboardWorkspaceTab = "decisions" | "organization" | "departments";
 
 function collaborationSignal(result: Scoring360Result) {
   const average = result.averageScore ?? 0;
@@ -45,7 +48,7 @@ function collaborationSignal(result: Scoring360Result) {
   return "孤岛风险";
 }
 
-export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPageProps) {
+export function DashboardPage({ selectedPeriodId, onOpenEmployee, externalView = false }: DashboardPageProps) {
   const selectedPeriod = reportPeriods.find((period) => period.id === selectedPeriodId) ?? reportPeriods.at(-1);
   const periodInsights = insightsForPeriod(selectedPeriod?.id || selectedPeriodId);
   const hasPeriodInsights = hasInsightsForPeriod(selectedPeriod?.id || selectedPeriodId);
@@ -61,22 +64,28 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
   const [selectedDepartment, setSelectedDepartment] = useState("");
   const [sendStatus, setSendStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [sendNote, setSendNote] = useState("");
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<DashboardWorkspaceTab>("decisions");
+  const [showAllDecisions, setShowAllDecisions] = useState(false);
+  const [showAllMustRead, setShowAllMustRead] = useState(false);
   const selectedWeeklyRows = selectedPeriod ? weeklyForPeriod(selectedPeriod.id) : [];
   const submittedCount = selectedPeriod?.submittedCount || appData.submittedCount || selectedWeeklyRows.length;
   const exemptCount = selectedPeriod?.exemptPeople?.length || appData.exemptCount;
   const peopleCount = Math.max(appData.peopleCount, submittedCount + exemptCount);
   const p0Count = periodAttentionQueue.filter((task) => task.priority === "P0").length;
   const coordinationCount = periodCoordinationSignals.filter((signal) => signal.priority === "P0").length;
-  const praiseCount = appData.employeeSummary.filter((employee) => employee.level === "A" || employee.level === "A-").length;
-  const mustRead = periodMustReadReports.slice(0, 6);
-  const departmentBars = Object.entries(appData.departmentScores)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([label, value]) => ({ label, value }));
-  const trendEmployeeName = appData.employeeSummary[0]?.name;
-  const trendValues = appData.weeklyScores
-    .filter((week) => week.name === trendEmployeeName)
-    .map((week) => week.total);
+  const praiseCount = selectedWeeklyRows.filter((week) => week.level === "A" || week.level === "A-").length;
+  const mustRead = periodMustReadReports;
+  const departmentBars = Object.entries(
+    selectedWeeklyRows.reduce<Record<string, { total: number; count: number }>>((groups, week) => {
+      const key = week.department || "未归类";
+      const current = groups[key] || { total: 0, count: 0 };
+      groups[key] = { total: current.total + week.total, count: current.count + 1 };
+      return groups;
+    }, {}),
+  )
+    .map(([label, group]) => ({ label, value: Math.round((group.total / Math.max(1, group.count)) * 10) / 10 }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8);
   const collaborationResults = scoring360.results.filter((result) => result.averageScore !== null);
   const collaborationLeaders = [...collaborationResults]
     .sort((a, b) => Number(b.averageScore || 0) - Number(a.averageScore || 0))
@@ -131,6 +140,7 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
   }, [departmentBriefs, selectedDepartment]);
 
   async function sendCompanyMessage() {
+    if (externalView) return;
     const message = companyMessageText.trim();
     if (!message || sendStatus === "sending") return;
     setSendStatus("sending");
@@ -159,8 +169,8 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
   const heroLine = executiveSummary[0] || "本周公司整体运转平稳，暂无需要老板立即介入的风险。";
 
   return (
-    <div className="v2-page v2-page-wide">
-      <section className="v2-dash-hero">
+    <div className="v2-page v2-page-wide v3-workbench-page">
+      <section className="v2-dash-hero v3-dashboard-band">
         <div className="v2-dash-hero-head">
           <div>
             <p className="v2-dash-hero-title">{selectedPeriod?.label || appData.currentWeekLabel} · 公司本周雷达</p>
@@ -189,9 +199,27 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
         </div>
       </section>
 
+      <nav className="v3-workspace-tabs" aria-label="老板驾驶舱工作区">
+        {([
+          ["decisions", "本周决策", AlertTriangle],
+          ["organization", "组织状态", CheckCircle2],
+          ["departments", "部门会议", Users],
+        ] as const).map(([key, label, Icon]) => (
+          <button
+            className={activeWorkspaceTab === key ? "is-active" : ""}
+            type="button"
+            key={key}
+            onClick={() => setActiveWorkspaceTab(key)}
+          >
+            <Icon size={16} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
+
       <div className="v2-dash-layout">
         <div className="v2-dash-main">
-          <section className="v2-card">
+          {activeWorkspaceTab === "decisions" ? <section className="v2-card v3-workspace-panel">
             <div className="v2-card-head">
               <div>
                 <span className="v2-eyebrow">
@@ -201,6 +229,11 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
                 <h3 className="v2-card-title">需要你拍板的事</h3>
                 <p className="v2-card-sub">员工单人推不动、需要拆墙、拍板或调资源的事项，按优先级排列。</p>
               </div>
+              {periodAttentionQueue.length > 4 ? (
+                <button className="v2-btn v2-btn-ghost" type="button" onClick={() => setShowAllDecisions((value) => !value)}>
+                  {showAllDecisions ? "收起" : `查看全部 ${periodAttentionQueue.length} 项`}
+                </button>
+              ) : null}
             </div>
             {periodAttentionQueue.length === 0 && periodCoordinationSignals.length === 0 ? (
               <p className="v2-empty-hint">本周没有需要你介入的事项，组织在自己闭环。</p>
@@ -208,7 +241,7 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
             {periodAttentionQueue
               .slice()
               .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
-              .slice(0, 4)
+              .slice(0, showAllDecisions ? undefined : 4)
               .map((task) => {
                 const tags = getCoordinationTags(task);
                 return (
@@ -256,9 +289,9 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
                 ))}
               </>
             ) : null}
-          </section>
+          </section> : null}
 
-          <section className="v2-card">
+          {activeWorkspaceTab === "organization" ? <section className="v2-card v3-workspace-panel">
             <div className="v2-card-head">
               <div>
                 <span className="v2-eyebrow">
@@ -281,10 +314,11 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
               );
             })}
             <div className="health-chips">
-              <span className="chip is-good">设计部 82.9</span>
-              <span className="chip is-good">采购跟单 82.9</span>
-              <span className="chip is-watch">产品企划 67.1</span>
-              <span className="chip is-watch">国内事业部 71.7</span>
+              {departmentBars.slice(0, 4).map((department) => (
+                <span className={`chip ${department.value >= 80 ? "is-good" : "is-watch"}`} key={department.label}>
+                  {department.label} {department.value}
+                </span>
+              ))}
             </div>
             {collectiveFocus.length > 0 ? (
               <>
@@ -302,10 +336,10 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
                 ))}
               </>
             ) : null}
-          </section>
+          </section> : null}
 
-          {activeDepartmentBrief ? (
-            <section className="v2-card">
+          {activeWorkspaceTab === "departments" && activeDepartmentBrief ? (
+            <section className="v2-card v3-workspace-panel">
               <div className="v2-card-head">
                 <div>
                   <span className="v2-eyebrow">
@@ -431,7 +465,7 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
             </section>
           ) : null}
 
-          <div className="v2-grid-2">
+          {activeWorkspaceTab === "organization" ? <div className="v2-grid-2">
             <section className="v2-card">
               <div className="v2-card-head">
                 <div>
@@ -512,7 +546,7 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
               ))}
               <p className="v2-card-sub v2-section-gap">低分提示老板核查：岗位是否被看见、协作是否断点、能力是否错配。</p>
             </section>
-          </div>
+          </div> : null}
         </div>
 
         <div className="v2-dash-side">
@@ -527,7 +561,7 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
               </div>
             </div>
             {mustRead.length === 0 ? <p className="v2-empty-hint">本周暂无必读周报。</p> : null}
-            {mustRead.slice(0, 4).map((report, index) => (
+            {mustRead.slice(0, showAllMustRead ? undefined : 4).map((report, index) => (
               <button className="v2-mustread-card" key={report.name} type="button" onClick={() => onOpenEmployee(report.name)}>
                 <span className="v2-mustread-rank">{index + 1}</span>
                 <span>
@@ -542,9 +576,14 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
                 </span>
               </button>
             ))}
+            {mustRead.length > 4 ? (
+              <button className="v2-btn v2-btn-ghost v3-view-all" type="button" onClick={() => setShowAllMustRead((value) => !value)}>
+                {showAllMustRead ? "收起" : `查看全部 ${mustRead.length} 份`}
+              </button>
+            ) : null}
           </section>
 
-          <section className="v2-card">
+          {activeWorkspaceTab === "decisions" ? <section className="v2-card">
             <div className="v2-card-head">
               <div>
                 <span className="v2-eyebrow">
@@ -558,6 +597,7 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
             <textarea
               className="v2-message-editor"
               value={companyMessageText}
+              readOnly={externalView}
               onChange={(event) => {
                 setCompanyMessageText(event.target.value);
                 if (sendStatus !== "sending") {
@@ -572,16 +612,16 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
                 className="v2-btn v2-btn-primary"
                 type="button"
                 onClick={sendCompanyMessage}
-                disabled={sendStatus === "sending" || companyMessageText.trim().length === 0}
+                disabled={externalView || sendStatus === "sending" || companyMessageText.trim().length === 0}
               >
                 <Send size={15} />
-                <span>{sendStatus === "sending" ? "发送中..." : "一键发飞书群消息"}</span>
+                <span>{externalView ? "只读视图" : sendStatus === "sending" ? "发送中..." : "一键发飞书群消息"}</span>
               </button>
             </div>
             {sendNote ? <p className={`v2-card-sub v2-section-gap message-send-status is-${sendStatus}`}>{sendNote}</p> : null}
-          </section>
+          </section> : null}
 
-          <section className="v2-card">
+          {activeWorkspaceTab === "organization" ? <section className="v2-card">
             <div className="v2-card-head">
               <div>
                 <span className="v2-eyebrow">
@@ -592,7 +632,7 @@ export function DashboardPage({ selectedPeriodId, onOpenEmployee }: DashboardPag
               </div>
             </div>
             <HorizontalBars data={departmentBars} />
-          </section>
+          </section> : null}
         </div>
       </div>
     </div>

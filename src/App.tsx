@@ -60,6 +60,7 @@ export function App() {
         const nextAccess = normalizeAccess(result.access, result.user);
         setAccess(nextAccess);
         setActivePage((page) => {
+          if (page === "growth" && nextAccess.canViewBossDashboard) return "dashboard";
           if (page === "dashboard" && !nextAccess.canViewBossDashboard) return "growth";
           if (page === "monthly" && !nextAccess.canViewBossDashboard) return "growth";
           if (page === "tasks" && !nextAccess.canViewBossDashboard) return "growth";
@@ -115,6 +116,7 @@ export function App() {
       return (
         <DashboardPage
           selectedPeriodId={selectedPeriodId}
+          externalView={externalView}
           onOpenEmployee={(name) => {
             setSelectedEmployee(name);
             setActivePage("growth");
@@ -166,8 +168,8 @@ export function App() {
         }}
         canViewBossDashboard={currentAccess.canViewBossDashboard}
         canViewSettings={currentAccess.canViewSettings}
-        userName={currentAccess.currentEmployee?.name || currentAccess.visibleEmployees[0]?.name || ""}
-        userDepartment={currentAccess.currentEmployee?.department || currentAccess.visibleEmployees[0]?.department || ""}
+        userName={currentAccess.currentEmployee?.name || ""}
+        userDepartment={currentAccess.currentEmployee?.department || ""}
       />
       <main className="main-shell">
         <AppHeader
@@ -209,7 +211,7 @@ function normalizeAccess(value: unknown, user: any): UserAccess {
     canViewBossDashboard: Boolean(record.canViewBossDashboard || record.bossView || user?.bossView || user?.role === "external_boss_view"),
     canManageScoring360: Boolean(record.canManageScoring360 || record.bossView || user?.bossView),
     canViewSettings: Boolean(record.canViewSettings || record.canManageScoring360 || record.bossView || user?.bossView),
-    currentEmployee: record.currentEmployee || visibleEmployees[0] || null,
+    currentEmployee: record.currentEmployee || null,
     visibilityMode: String(record.visibilityMode || "self_department_and_reports"),
     visibleEmployees,
     visibleOpenIds: Array.isArray(record.visibleOpenIds) ? record.visibleOpenIds : visibleEmployees.map((employee) => employee.openId).filter(Boolean),
