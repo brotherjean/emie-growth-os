@@ -14,7 +14,7 @@ const pythonBin = process.env.PYTHON || process.env.PYTHON3 || "python3";
 
 function parseArgs(argv) {
   const args = {
-    identity: "user",
+    identity: process.env.LARK_REPORT_SYNC_IDENTITY || "user",
     timezone: "Asia/Shanghai",
     pageAll: true,
   };
@@ -39,7 +39,7 @@ function parseArgs(argv) {
     }
   }
   if (!args.input && (!args.start || !args.end)) {
-    throw new Error("Usage: node scripts/sync-lark-report.mjs --start YYYY-MM-DD --end YYYY-MM-DD [--rule-id xxx] [--as user] OR --input raw.json");
+    throw new Error("Usage: node scripts/sync-lark-report.mjs --start YYYY-MM-DD --end YYYY-MM-DD [--rule-id xxx] [--as user|bot] OR --input raw.json");
   }
   return args;
 }

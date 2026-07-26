@@ -9,6 +9,7 @@ const statusPath = path.join(rootDir, "outputs/lark-report-sync-status.json");
 const releasesDir = path.join(rootDir, "outputs", "static-releases");
 const distDir = path.join(rootDir, "dist");
 const defaultExemptPeople = process.env.LARK_REPORT_AUTO_SYNC_EXEMPT || "";
+const defaultSyncIdentity = process.env.LARK_REPORT_SYNC_IDENTITY || "user";
 
 function parseArgs(argv) {
   const args = {
@@ -202,7 +203,7 @@ async function main() {
         "--end",
         args.commitEnd,
         "--as",
-        args.as || "user",
+        args.as || defaultSyncIdentity,
         ...(optionValue(args["rule-id"]) ? ["--rule-id", optionValue(args["rule-id"])] : []),
       ],
       { message: "正在从飞书汇报接口拉取本周期数据" },
