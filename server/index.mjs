@@ -542,7 +542,7 @@ async function getWeeklyReminderStatus(req, res) {
     sendJson(res, 403, { ok: false, error: "boss_only" });
     return;
   }
-  const context = loadWeeklyReminderContext();
+  const context = await loadWeeklyReminderContext();
   const rows = await querySqlRows(`
     SELECT period_id, period_label, recipient_name, department, status, identity, feishu_message_id, created_at
     FROM weekly_reminder_sends
@@ -2751,7 +2751,7 @@ function getChinaWorkdayStatus(input) {
 }
 
 async function runWeeklyGrowthReminder({ dryRun = true, force = false, source = "manual", actor = null, kind = "friday_review" } = {}) {
-  const context = loadWeeklyReminderContext();
+  const context = await loadWeeklyReminderContext();
   const deliveryRecipients = await resolveWeeklyReminderDeliveryRecipients(context.recipients);
   const outboxPeriodId = buildWeeklyReminderOutboxPeriodId(context.period.id, kind);
   const outboxByOpenId = config.weeklyReminderUseOutbox
@@ -2919,7 +2919,7 @@ async function updateWeeklyReminderOutboxAfterSend({ outboxItem, recipientOpenId
   `);
 }
 
-function loadWeeklyReminderContext() {
+async function loadWeeklyReminderContext() {
   const filePath = path.join(rootDir, "src/data/prototypeData.json");
   const parsed = JSON.parse(readFileSync(filePath, "utf8"));
   const meta = parsed.meta || {};
@@ -2937,6 +2937,13 @@ function loadWeeklyReminderContext() {
     ...toSimpleList(meta.exempt_people || meta.exemptPeople),
   ].map((name) => String(name || "").trim()).filter(Boolean));
   const rows = Array.isArray(parsed.employee_summary) ? parsed.employee_summary : [];
+  const activeEmployeeRows = await querySqlRows(`
+    SELECT open_id, name
+    FROM employees
+    WHERE is_active = 1;
+  `).catch(() => []);
+  const activeOpenIds = new Set(activeEmployeeRows.map((row) => String(row.open_id || "").trim()).filter(Boolean));
+  const activeNames = new Set(activeEmployeeRows.map((row) => normalizeUserName(row.name)).filter(Boolean));
   const recipients = rows
     .map((row) => ({
       openId: String(row.open_id || row.openId || "").trim(),
@@ -2944,7 +2951,10 @@ function loadWeeklyReminderContext() {
       department: String(row["部门"] || row.department || "").trim(),
       email: String(row["企业邮箱"] || row.email || "").trim(),
     }))
-    .filter((employee) => employee.openId && employee.name && !exemptPeople.has(employee.name));
+    .filter((employee) => employee.openId && employee.name && !exemptPeople.has(employee.name))
+    .filter((employee) => activeEmployeeRows.length === 0
+      || activeOpenIds.has(employee.openId)
+      || activeNames.has(normalizeUserName(employee.name)));
   return {
     period: {
       id: periodId,
