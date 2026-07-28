@@ -148,7 +148,9 @@ async function verifyMonthlyMeetingIncluded(releaseId) {
   const jsFiles = assetFiles.filter((file) => file.endsWith(".js"));
   for (const file of jsFiles) {
     const content = await readFile(path.join(assetsDir, file), "utf8");
-    if (content.includes("月度会议") && content.includes("经营复盘议程")) {
+    const hasMonthlyPage = content.includes("monthly-meeting-page");
+    const hasMonthlyHeading = content.includes("Monthly Operating Review") || content.includes("经营复盘议程");
+    if (hasMonthlyPage && hasMonthlyHeading) {
       return true;
     }
   }
