@@ -276,15 +276,39 @@ export interface MonthlyMeetingFlowItem {
   output: string;
 }
 
+export interface MonthlyMeetingPeriodOption {
+  monthKey: string;
+  label: string;
+  meetingDate: string;
+  status: "archived" | "scheduled" | "draft";
+}
+
+export interface MonthlyMeetingComparison {
+  previousMonthKey: string;
+  previousMonthLabel: string;
+  reportDelta: number;
+  scoreDelta: number;
+  priorityDelta: Record<Priority, number>;
+  improvements: string[];
+  recurringIssues: string[];
+  newRisks: string[];
+}
+
 export interface MonthlyMeetingBrief {
+  monthKey: string;
   monthLabel: string;
+  meetingDate: string;
+  archiveStatus: "archived" | "scheduled" | "draft";
   windowLabel: string;
   generatedOn: string;
+  model: string;
   totalReports: number;
   submittedPeople: number;
   activeDepartments: number;
+  averageScore: number;
   priorityCounts: Record<Priority, number>;
   categoryCounts: Record<MonthlyMeetingCategory, number>;
+  comparison: MonthlyMeetingComparison;
   executiveSummary: string[];
   financeBridge: MonthlyFinanceBridge;
   companyAgenda: MonthlyMeetingAgendaItem[];

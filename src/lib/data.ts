@@ -1,6 +1,7 @@
 import rawData from "../data/prototypeData.json";
 import rawKimiInsights from "../data/kimiInsights.json";
 import rawKimiInsightsByPeriod from "../data/kimiInsightsByPeriod.json";
+import rawMonthlyMeetingInsights from "../data/monthlyMeetingInsights.json";
 import rawScoring360 from "../data/scoring360.json";
 import { buildEmployeeClosureInsight, buildOrganizationClosureRadar } from "./closure";
 import type {
@@ -21,6 +22,7 @@ import type {
   MonthlyMeetingAgendaItem,
   MonthlyMeetingBrief,
   MonthlyMeetingCategory,
+  MonthlyMeetingPeriodOption,
   MustReadReport,
   OrganizationClosureRadar,
   MonthlyDepartmentGroup,
@@ -36,6 +38,7 @@ import type {
 type RawRecord = Record<string, any>;
 
 const raw = rawData as RawRecord;
+const rawMonthlyMeetings = rawMonthlyMeetingInsights as RawRecord;
 
 const toNumber = (value: unknown) => Number(value ?? 0);
 const toText = (value: unknown) => String(value ?? "");
@@ -812,11 +815,15 @@ export function departmentMeetingBriefsForPeriod(periodId?: string): DepartmentM
 
 const monthlyCategories: MonthlyMeetingCategory[] = ["经营问题", "业务问题", "产品问题", "流程问题", "制度问题", "文化问题"];
 
-const monthlyMeetingFlow = [
+function monthlyMeetingFlowFor(monthKey: string) {
+  const reviewMonth = `${Number(monthKey.split("-")[1] || 0)}月`;
+  const nextKey = nextMonthKey(monthKey);
+  const actionMonth = `${Number(nextKey.split("-")[1] || 0)}月`;
+  return [
   {
     time: "09:30-10:00",
     title: "开场与经营总览",
-    goal: "先把6月整体经营、环境和团队状态摆到同一张桌面上。",
+    goal: `先把${reviewMonth}整体经营、环境和团队状态摆到同一张桌面上。`,
     output: "确认本次月会只讨论事实、问题、决策和闭环，不做泛泛情绪复盘。",
   },
   {
@@ -829,7 +836,7 @@ const monthlyMeetingFlow = [
     time: "11:10-12:00",
     title: "经营与业务复盘",
     goal: "复盘收入、客户、渠道、库存、交付和现金链路里的核心阻塞。",
-    output: "形成6月经营问题清单与7月防守/增长动作。",
+    output: `形成${reviewMonth}经营问题清单与${actionMonth}防守/增长动作。`,
   },
   {
     time: "13:30-14:40",
@@ -855,7 +862,8 @@ const monthlyMeetingFlow = [
     goal: "把会议共识落到飞书任务和下月成长OS追踪项。",
     output: "确认老板关注队列、部门任务池和下次月会必须回看的事实证据。",
   },
-];
+  ];
+}
 
 function monthKeyFromDate(value?: string) {
   if (!value || value.length < 7) return "";
@@ -871,17 +879,93 @@ function previousMonthKey(monthKey: string) {
   return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+function nextMonthKey(monthKey: string) {
+  const [yearText, monthText] = monthKey.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  if (!year || !month) return monthKey;
+  const next = new Date(Date.UTC(year, month, 1));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 function periodMonthKey(period: ReportPeriod) {
+  const labelMonth = period.label.match(/(\d{1,2})月/)?.[1];
+  if (labelMonth) {
+    const paddedMonth = labelMonth.padStart(2, "0");
+    const matchingDate = [period.start, period.end].find((value) => value?.slice(5, 7) === paddedMonth);
+    const year = (matchingDate || period.end || period.start || appData.generatedOn || "2026").slice(0, 4);
+    if (year) return `${year}-${paddedMonth}`;
+  }
   return monthKeyFromDate(period.start) || monthKeyFromDate(period.end);
 }
 
-function currentMonthKey() {
+function latestDataMonthKey() {
   const period = currentPeriod ?? reportPeriods.at(-1);
   return period ? periodMonthKey(period) || monthKeyFromDate(appData.generatedOn) || "2026-06" : "2026-06";
 }
 
+function reviewMonthForGeneratedDate() {
+  const generatedMonth = monthKeyFromDate(appData.generatedOn);
+  return generatedMonth ? previousMonthKey(generatedMonth) : latestDataMonthKey();
+}
+
+type MonthlyMeetingAiRecord = {
+  monthKey: string;
+  meetingDate: string;
+  status: "archived" | "scheduled" | "draft";
+  model: string;
+  generatedAt: string;
+  executiveSummary: string[];
+  comparison: {
+    improvements: string[];
+    recurringIssues: string[];
+    newRisks: string[];
+  };
+};
+
+const monthlyMeetingAiRecords: MonthlyMeetingAiRecord[] = toRecordArray(rawMonthlyMeetings.records).map((record) => ({
+  monthKey: toText(record.monthKey),
+  meetingDate: toText(record.meetingDate),
+  status: ["archived", "scheduled", "draft"].includes(toText(record.status))
+    ? (toText(record.status) as MonthlyMeetingAiRecord["status"])
+    : "archived",
+  model: toText(record.model),
+  generatedAt: toText(record.generatedAt),
+  executiveSummary: toArray(record.executiveSummary).map(toText),
+  comparison: {
+    improvements: toArray(record.comparison?.improvements).map(toText),
+    recurringIssues: toArray(record.comparison?.recurringIssues).map(toText),
+    newRisks: toArray(record.comparison?.newRisks).map(toText),
+  },
+}));
+
+function monthlyMeetingAiRecordFor(monthKey: string) {
+  return monthlyMeetingAiRecords.find((record) => record.monthKey === monthKey);
+}
+
+export function monthlyMeetingPeriodOptions(): MonthlyMeetingPeriodOption[] {
+  const monthKeys = uniqText(reportPeriods.map(periodMonthKey)).sort().reverse();
+  const defaultMonth = reviewMonthForGeneratedDate();
+  return monthKeys.map((monthKey) => {
+    const record = monthlyMeetingAiRecordFor(monthKey);
+    return {
+      monthKey,
+      label: monthLabel(monthKey),
+      meetingDate: record?.meetingDate || "",
+      status: record?.status || (monthKey < defaultMonth ? "archived" : monthKey === defaultMonth ? "scheduled" : "draft"),
+    };
+  });
+}
+
+export function defaultMonthlyMeetingMonthKey() {
+  const options = monthlyMeetingPeriodOptions();
+  const reviewMonth = reviewMonthForGeneratedDate();
+  return options.find((option) => option.monthKey === reviewMonth)?.monthKey || options[0]?.monthKey || latestDataMonthKey();
+}
+
 function weekMonthKey(week: WeeklyScore) {
-  return monthKeyFromDate(week.weekStart) || monthKeyFromDate(week.weekEnd) || monthKeyFromDate(week.submittedAt);
+  const period = reportPeriods.find((item) => item.id === week.weekId);
+  return (period ? periodMonthKey(period) : "") || monthKeyFromDate(week.weekStart) || monthKeyFromDate(week.weekEnd) || monthKeyFromDate(week.submittedAt);
 }
 
 function uniqText(values: string[]) {
@@ -1051,8 +1135,9 @@ function emptyCategoryCounts(): Record<MonthlyMeetingCategory, number> {
 }
 
 function monthLabel(monthKey: string) {
+  const year = Number(monthKey.split("-")[0] || 0);
   const month = Number(monthKey.split("-")[1] || 0);
-  return month ? `${month}月月度经营复盘` : "月度经营复盘";
+  return month ? `${year ? `${year}年` : ""}${month}月经营复盘` : "月度经营复盘";
 }
 
 function itemRelatesToDepartment(item: MonthlyMeetingAgendaItem, department: string) {
@@ -1182,6 +1267,7 @@ function buildMonthlyDepartmentGroups(reviews: MonthlyDepartmentReview[]): Month
 
 function monthlyFinanceBridgeFor(monthKey: string): MonthlyFinanceBridge {
   const previousKey = previousMonthKey(monthKey);
+  const reviewMonth = `${Number(monthKey.split("-")[1] || 0)}月`;
   return {
     title: "经营数据补完",
     status: `${monthKey} 财报通常要到月中才能完整；当前月会页先使用成长OS周报、任务、闭环与协同事实。${previousKey} 财报可作为滞后经营参照。`,
@@ -1191,39 +1277,51 @@ function monthlyFinanceBridgeFor(monthKey: string): MonthlyFinanceBridge {
       "周经营线索：已能看到销售目标、库存、送审、交付、回款等员工周报暴露问题。",
     ],
     missingFacts: [
-      "6月收入、毛利、费用、现金流、回款、库存水位和订单结构的正式财务口径。",
+      `${reviewMonth}收入、毛利、费用、现金流、回款、库存水位和订单结构的正式财务口径。`,
       "Nexus订单/客户/SKU/发货/回款链路里的事实表与异常清单。",
       "财报与周报问题之间的映射：哪些周报暴露问题真正影响了经营结果。",
     ],
     nexusRequest: [
-      "请 Nexus 输出 6月经营事实包：销售额、毛利、费用、回款、库存、订单、客户、渠道、异常与证据链接。",
+      `请 Nexus 输出 ${reviewMonth}经营事实包：销售额、毛利、费用、回款、库存、订单、客户、渠道、异常与证据链接。`,
       "按国内/海外/商超/中后台支持链路拆分，并标记可追责部门与影响部门。",
       "把财报滞后数据作为月会二次校准，不覆盖周报事实，而是校验哪些问题真的造成经营影响。",
     ],
   };
 }
 
-export function monthlyMeetingBriefForMonth(monthKey = currentMonthKey()): MonthlyMeetingBrief {
-  const previousKey = previousMonthKey(monthKey);
-  const contextPeriodIds = reportPeriods
-    .filter((period) => periodMonthKey(period) === monthKey || periodMonthKey(period) === previousKey)
-    .map((period) => period.id);
-  const targetPeriodIds = reportPeriods.filter((period) => periodMonthKey(period) === monthKey).map((period) => period.id);
-  const targetRows = appData.weeklyScores.filter((week) => weekMonthKey(week) === monthKey);
-  const agenda = uniqueMonthlyAgenda(
-    contextPeriodIds.flatMap((periodId) =>
+function agendaForPeriodIds(periodIds: string[]) {
+  return uniqueMonthlyAgenda(
+    periodIds.flatMap((periodId) =>
       attentionQueueForInsights(insightsForPeriod(periodId)).map((task, index) => buildMonthlyAgendaItem(task, periodId, index)),
     ),
-  ).sort((a, b) => {
-    const aTarget = targetPeriodIds.includes(a.periodId) ? 0 : 1;
-    const bTarget = targetPeriodIds.includes(b.periodId) ? 0 : 1;
-    return priorityRank(a.priority) - priorityRank(b.priority) || aTarget - bTarget || monthlyCategories.indexOf(a.category) - monthlyCategories.indexOf(b.category);
+  ).sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || monthlyCategories.indexOf(a.category) - monthlyCategories.indexOf(b.category));
+}
+
+function agendaMatchesPrevious(item: MonthlyMeetingAgendaItem, previousItems: MonthlyMeetingAgendaItem[]) {
+  const compactTitle = item.title.replace(/[\s\d\p{P}]+/gu, "").slice(0, 12);
+  return previousItems.some((previous) => {
+    const previousTitle = previous.title.replace(/[\s\d\p{P}]+/gu, "").slice(0, 12);
+    return (item.source === previous.source && item.category === previous.category) || (compactTitle.length >= 6 && compactTitle === previousTitle);
   });
+}
+
+export function monthlyMeetingBriefForMonth(monthKey = defaultMonthlyMeetingMonthKey()): MonthlyMeetingBrief {
+  const previousKey = previousMonthKey(monthKey);
+  const targetPeriodIds = reportPeriods.filter((period) => periodMonthKey(period) === monthKey).map((period) => period.id);
+  const previousPeriodIds = reportPeriods.filter((period) => periodMonthKey(period) === previousKey).map((period) => period.id);
+  const targetRows = appData.weeklyScores.filter((week) => weekMonthKey(week) === monthKey);
+  const previousRows = appData.weeklyScores.filter((week) => weekMonthKey(week) === previousKey);
+  const agenda = agendaForPeriodIds(targetPeriodIds);
+  const previousAgenda = agendaForPeriodIds(previousPeriodIds);
   const priorityCounts = emptyPriorityCounts();
+  const previousPriorityCounts = emptyPriorityCounts();
   const categoryCounts = emptyCategoryCounts();
   agenda.forEach((item) => {
     priorityCounts[item.priority] += 1;
     categoryCounts[item.category] += 1;
+  });
+  previousAgenda.forEach((item) => {
+    previousPriorityCounts[item.priority] += 1;
   });
   const departments = [...new Set(appData.employeeSummary.map((employee) => employee.department).filter(Boolean))];
   const departmentReviews = departments
@@ -1244,28 +1342,59 @@ export function monthlyMeetingBriefForMonth(monthKey = currentMonthKey()): Month
     .sort((a, b) => b.count - a.count)
     .slice(0, 3)
     .map((item) => `${item.category}出现 ${item.count} 个可讨论议题`);
-  const executiveSummary = [
+  const generatedSummary = [
     `${monthLabel(monthKey)}覆盖 ${targetPeriodIds.length} 个周报周期、${targetRows.length} 条个人周报，跨月追踪窗口包含 ${previousKey} 与 ${monthKey}。`,
     ...topCategories,
     ...summaryFromInsights,
   ].slice(0, 7);
+  const aiRecord = monthlyMeetingAiRecordFor(monthKey);
+  const averageScore = average(targetRows.map((row) => row.total));
+  const previousAverageScore = average(previousRows.map((row) => row.total));
+  const recurringIssues = agenda.filter((item) => agendaMatchesPrevious(item, previousAgenda));
+  const newRisks = agenda.filter((item) => !agendaMatchesPrevious(item, previousAgenda));
+  const fallbackImprovements = [
+    averageScore > previousAverageScore ? `周报质量均分较${monthLabel(previousKey)}提升 ${(averageScore - previousAverageScore).toFixed(1)} 分。` : "",
+    priorityCounts.P0 < previousPriorityCounts.P0 ? `P0 议题较上月减少 ${previousPriorityCounts.P0 - priorityCounts.P0} 个。` : "",
+  ].filter(Boolean);
+  const archiveOption = monthlyMeetingPeriodOptions().find((option) => option.monthKey === monthKey);
 
   return {
+    monthKey,
     monthLabel: monthLabel(monthKey),
+    meetingDate: aiRecord?.meetingDate || archiveOption?.meetingDate || "",
+    archiveStatus: aiRecord?.status || archiveOption?.status || "archived",
     windowLabel: `${previousKey} 跨月追踪 + ${monthKey} 主复盘`,
-    generatedOn: appData.generatedOn,
+    generatedOn: aiRecord?.generatedAt?.slice(0, 10) || appData.generatedOn,
+    model: aiRecord?.model || kimiInsights.meta.model,
     totalReports: targetRows.length,
     submittedPeople: new Set(targetRows.map((week) => week.name)).size,
     activeDepartments: departments.length,
+    averageScore,
     priorityCounts,
     categoryCounts,
-    executiveSummary,
+    comparison: {
+      previousMonthKey: previousKey,
+      previousMonthLabel: monthLabel(previousKey),
+      reportDelta: targetRows.length - previousRows.length,
+      scoreDelta: Math.round((averageScore - previousAverageScore) * 10) / 10,
+      priorityDelta: {
+        P0: priorityCounts.P0 - previousPriorityCounts.P0,
+        P1: priorityCounts.P1 - previousPriorityCounts.P1,
+        P2: priorityCounts.P2 - previousPriorityCounts.P2,
+      },
+      improvements: aiRecord?.comparison.improvements.length ? aiRecord.comparison.improvements : fallbackImprovements,
+      recurringIssues: aiRecord?.comparison.recurringIssues.length
+        ? aiRecord.comparison.recurringIssues
+        : recurringIssues.slice(0, 4).map((item) => item.title),
+      newRisks: aiRecord?.comparison.newRisks.length ? aiRecord.comparison.newRisks : newRisks.slice(0, 4).map((item) => item.title),
+    },
+    executiveSummary: aiRecord?.executiveSummary.length ? aiRecord.executiveSummary : generatedSummary,
     financeBridge: monthlyFinanceBridgeFor(monthKey),
     companyAgenda: agenda,
     departmentReviews,
     departmentGroups,
     factJumps: agenda.slice(0, 12),
-    flow: monthlyMeetingFlow,
+    flow: monthlyMeetingFlowFor(monthKey),
   };
 }
 

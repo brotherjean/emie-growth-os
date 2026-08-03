@@ -141,7 +141,7 @@ async function publishLatestStaticRelease() {
   return releaseId;
 }
 
-async function verifyMonthlyMeetingIncluded(releaseId) {
+async function verifyMonthlyMeetingIncluded(releaseId, expectedMonthKey = "") {
   const releaseDir = path.join(releasesDir, releaseId);
   const assetsDir = path.join(releaseDir, "assets");
   const assetFiles = await readdir(assetsDir).catch(() => []);
@@ -150,7 +150,8 @@ async function verifyMonthlyMeetingIncluded(releaseId) {
     const content = await readFile(path.join(assetsDir, file), "utf8");
     const hasMonthlyPage = content.includes("monthly-meeting-page");
     const hasMonthlyHeading = content.includes("Monthly Operating Review") || content.includes("经营复盘议程");
-    if (hasMonthlyPage && hasMonthlyHeading) {
+    const hasExpectedMonth = !expectedMonthKey || content.includes(expectedMonthKey);
+    if (hasMonthlyPage && hasMonthlyHeading && hasExpectedMonth) {
       return true;
     }
   }
@@ -179,6 +180,8 @@ async function main() {
     releaseId: undefined,
     monthlyMeetingIncluded: undefined,
     monthlyMeetingMessage: undefined,
+    monthlyMeetingMonth: undefined,
+    monthlyMeetingModel: undefined,
     rowCount: undefined,
     error: undefined,
     period: {
@@ -240,6 +243,10 @@ async function main() {
       message: "正在运行 Kimi 周报预处理",
       env: { KIMI_APP_IGNORE_CACHE: "1" },
     });
+    const monthlyMeetingOutput = await runStep("kimi_monthly_meeting", "npm", ["run", "ai:monthly-meeting"], {
+      message: "正在生成并归档月度经营复盘",
+    });
+    const monthlyMeetingResult = parseLastJsonObject(monthlyMeetingOutput);
     await runStep("weekly_reminder_outbox", "npm", ["run", "reminders:prepare"], {
       message: "正在预生成周五成长提醒 outbox",
     });
@@ -252,7 +259,7 @@ async function main() {
     });
     await updateStatus({ phase: "publish_static_release", message: "正在发布最新页面到线上 dist" });
     const releaseId = await publishLatestStaticRelease();
-    const monthlyMeetingIncluded = await verifyMonthlyMeetingIncluded(releaseId);
+    const monthlyMeetingIncluded = await verifyMonthlyMeetingIncluded(releaseId, monthlyMeetingResult.monthKey);
 
     await updateStatus({
       ok: true,
@@ -264,7 +271,9 @@ async function main() {
       importOutputPath: syncResult.importOutputPath,
       releaseId,
       monthlyMeetingIncluded,
-      monthlyMeetingMessage: "月度经营复盘会页面已纳入本次静态页面构建",
+      monthlyMeetingMessage: "月度经营复盘会页面与历史月份记录已纳入本次静态页面构建",
+      monthlyMeetingMonth: monthlyMeetingResult.monthKey,
+      monthlyMeetingModel: monthlyMeetingResult.model,
       rowCount: syncResult.rowCount,
     });
   } catch (error) {

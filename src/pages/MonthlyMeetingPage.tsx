@@ -1,6 +1,7 @@
 import {
   ArrowRight,
   Building2,
+  CalendarDays,
   ChevronDown,
   ChevronUp,
   CheckSquare,
@@ -10,9 +11,9 @@ import {
   Network,
   Presentation,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PriorityBadge } from "../components/PriorityBadge";
-import { monthlyMeetingBriefForMonth } from "../lib/data";
+import { defaultMonthlyMeetingMonthKey, monthlyMeetingBriefForMonth, monthlyMeetingPeriodOptions } from "../lib/data";
 import { truncate } from "../lib/format";
 import type { MonthlyDepartmentReview, MonthlyMeetingAgendaItem, MonthlyMeetingCategory } from "../lib/types";
 
@@ -99,11 +100,17 @@ function DepartmentReviewCard({ review, onOpenEmployee }: { review: MonthlyDepar
 }
 
 export function MonthlyMeetingPage({ onOpenEmployee }: MonthlyMeetingPageProps) {
-  const brief = useMemo(() => monthlyMeetingBriefForMonth("2026-06"), []);
+  const periodOptions = useMemo(() => monthlyMeetingPeriodOptions(), []);
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonthlyMeetingMonthKey);
+  const brief = useMemo(() => monthlyMeetingBriefForMonth(selectedMonth), [selectedMonth]);
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const [expandedBranches, setExpandedBranches] = useState<Record<string, boolean>>({});
   const defaultDepartment = brief.departmentGroups[0]?.reviews[0]?.department || brief.departmentReviews[0]?.department || "";
   const [selectedDepartment, setSelectedDepartment] = useState(defaultDepartment);
+  useEffect(() => {
+    setSelectedDepartment(defaultDepartment);
+    setExpandedBranches({});
+  }, [defaultDepartment, selectedMonth]);
   const selectedReview = brief.departmentReviews.find((review) => review.department === selectedDepartment) ?? brief.departmentReviews[0];
   const agendaByCategory = categoryOrder.map((category) => ({
     category,
@@ -122,7 +129,24 @@ export function MonthlyMeetingPage({ onOpenEmployee }: MonthlyMeetingPageProps) 
         <div>
           <span className="section-label">Monthly Operating Review</span>
           <h2>{brief.monthLabel}</h2>
-          <p>{brief.windowLabel}。用于下周二全天投屏会议：先统一事实，再分部门拆问题，最后生成任务和下月追踪。</p>
+          <p>{brief.windowLabel}。先统一事实，再分部门拆问题，最后生成任务和下月追踪。</p>
+          <div className="monthly-archive-controls">
+            <label>
+              <CalendarDays size={16} />
+              <span>月会记录</span>
+              <select value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} aria-label="选择月会月份">
+                {periodOptions.map((option) => (
+                  <option value={option.monthKey} key={option.monthKey}>
+                    {option.label}{option.meetingDate ? ` · ${option.meetingDate}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className={`monthly-archive-status is-${brief.archiveStatus}`}>
+              {brief.archiveStatus === "scheduled" ? "待开会" : brief.archiveStatus === "draft" ? "月中积累" : "历史归档"}
+            </span>
+            {brief.meetingDate ? <strong>{brief.meetingDate} 开会</strong> : null}
+          </div>
         </div>
         <div className="monthly-hero-grid">
           <div>
@@ -140,7 +164,42 @@ export function MonthlyMeetingPage({ onOpenEmployee }: MonthlyMeetingPageProps) 
           <div>
             <span>生成时间</span>
             <strong>{brief.generatedOn || "-"}</strong>
-            <small>基于成长OS本地快照</small>
+            <small>{brief.model ? `${brief.model} · ` : ""}成长OS月度快照</small>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel monthly-comparison-panel">
+        <div className="panel-heading compact">
+          <div>
+            <span className="section-label">Month over Month</span>
+            <h2>与{brief.comparison.previousMonthLabel}相比</h2>
+          </div>
+          <span className={brief.comparison.scoreDelta >= 0 ? "monthly-delta is-up" : "monthly-delta is-down"}>
+            均分 {brief.comparison.scoreDelta >= 0 ? "+" : ""}{brief.comparison.scoreDelta.toFixed(1)}
+          </span>
+        </div>
+        <div className="monthly-comparison-metrics">
+          <span>周报记录 <strong>{brief.comparison.reportDelta >= 0 ? "+" : ""}{brief.comparison.reportDelta}</strong></span>
+          <span>P0 <strong>{brief.comparison.priorityDelta.P0 >= 0 ? "+" : ""}{brief.comparison.priorityDelta.P0}</strong></span>
+          <span>P1 <strong>{brief.comparison.priorityDelta.P1 >= 0 ? "+" : ""}{brief.comparison.priorityDelta.P1}</strong></span>
+          <span>P2 <strong>{brief.comparison.priorityDelta.P2 >= 0 ? "+" : ""}{brief.comparison.priorityDelta.P2}</strong></span>
+        </div>
+        <div className="monthly-comparison-columns">
+          <div>
+            <h3>已经进步</h3>
+            {(brief.comparison.improvements.length ? brief.comparison.improvements : ["暂无足够证据判断明显进步。"])
+              .slice(0, 4).map((item) => <p key={item}>{item}</p>)}
+          </div>
+          <div>
+            <h3>跨月未闭环</h3>
+            {(brief.comparison.recurringIssues.length ? brief.comparison.recurringIssues : ["未识别到明确跨月重复议题。"])
+              .slice(0, 4).map((item) => <p key={item}>{item}</p>)}
+          </div>
+          <div>
+            <h3>本月新增风险</h3>
+            {(brief.comparison.newRisks.length ? brief.comparison.newRisks : ["未识别到新的高优先级风险。"])
+              .slice(0, 4).map((item) => <p key={item}>{item}</p>)}
           </div>
         </div>
       </section>

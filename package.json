@@ -10,6 +10,7 @@
     "ai:test": "node scripts/test-ai-providers.mjs",
     "ai:analysis": "node scripts/run-analysis-comparison.mjs",
     "ai:app-data": "node scripts/generate-kimi-app-data.mjs",
+    "ai:monthly-meeting": "node scripts/generate-monthly-meeting-insights.mjs",
     "import:reports": "node scripts/import-feishu-report-export.mjs",
     "import:scoring360": "node scripts/import-scoring360.mjs",
     "sync:lark-report": "node scripts/sync-lark-report.mjs",
