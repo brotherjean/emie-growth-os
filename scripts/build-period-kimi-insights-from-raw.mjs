@@ -32,13 +32,18 @@ async function readJson(filePath, fallback = {}) {
 
 function normalizeInsights(value, meta = {}) {
   const insight = value && typeof value === "object" ? value : {};
+  const models = meta.models ?? insight.meta?.models;
+  const modelValues = Object.values(models ?? {}).flat().filter(Boolean);
+  const uniqueModels = [...new Set(modelValues)];
   return {
     meta: {
+      ...(insight.meta ?? {}),
       provider: "kimi",
-      model: "kimi-k2.6",
+      model: uniqueModels.length > 1 ? "mixed" : uniqueModels[0] || insight.meta?.model || "kimi-k2.6",
+      modelStrategy: models ? "hybrid" : insight.meta?.modelStrategy,
+      ...(models ? { models } : {}),
       generatedAt: meta.generatedAt || new Date().toISOString(),
       source: "raw-cache",
-      ...(insight.meta ?? {}),
     },
     executiveSummary: Array.isArray(insight.executiveSummary) ? insight.executiveSummary.slice(0, 8) : [],
     collectiveFocus: Array.isArray(insight.collectiveFocus) ? insight.collectiveFocus.slice(0, 8) : [],
@@ -76,12 +81,23 @@ async function parseRawFiles() {
   await mkdir(outputDir, { recursive: true });
   const files = await readdir(outputDir);
   const periods = new Map();
-  const rawPattern = /^kimi-app-data\.(2026-W\d{2})-(briefing|attention|themes|employees-\d{2}(?:-[^.]+)?(?:\.retry)?)\.raw\.txt$/;
+  const runFilesByPeriod = new Map();
+  for (const file of files.filter((name) => /^kimi-app-data\.2026-W\d{2}\.run\.json$/.test(name))) {
+    const run = await readJson(path.join(outputDir, file));
+    const periodId = file.match(/kimi-app-data\.(2026-W\d{2})\.run\.json/)?.[1];
+    if (!periodId || !Array.isArray(run.blocks)) continue;
+    runFilesByPeriod.set(periodId, new Set(run.blocks.map((block) => block.rawLabel).filter(Boolean)));
+  }
+  const rawPattern = /^kimi-app-data\.(2026-W\d{2})-((?:briefing|attention|themes)(?:\.retry)?|employees-\d{2}(?:-[^.]+)?(?:\.retry)?)\.raw\.txt$/;
 
   for (const file of files) {
     const match = file.match(rawPattern);
     if (!match) continue;
     const [, periodId, block] = match;
+    const rawLabel = file.slice("kimi-app-data.".length, -".raw.txt".length);
+    const allowedLabels = runFilesByPeriod.get(periodId);
+    if (allowedLabels && !allowedLabels.has(rawLabel)) continue;
+    const blockKind = block.replace(/\.retry$/, "");
     const filePath = path.join(outputDir, file);
     let parsed;
     try {
@@ -95,14 +111,17 @@ async function parseRawFiles() {
       label: "",
       generatedAt: (await stat(filePath)).mtime.toISOString(),
       rawLabels: {},
+      models: {},
       data: {},
       employeeInsights: [],
     };
+    const rawMeta = await readJson(filePath.replace(/\.raw\.txt$/, ".meta.json"));
     entry.generatedAt = new Date(Math.max(Date.parse(entry.generatedAt), (await stat(filePath)).mtimeMs)).toISOString();
 
-    if (block === "briefing") {
+    if (blockKind === "briefing") {
       if (shouldPrefer(block, entry.rawLabels.briefing)) {
         entry.rawLabels.briefing = block;
+        if (rawMeta.model) entry.models.briefing = rawMeta.model;
         entry.data = {
           ...entry.data,
           executiveSummary: parsed.executiveSummary,
@@ -111,17 +130,22 @@ async function parseRawFiles() {
           mustReadReports: parsed.mustReadReports,
         };
       }
-    } else if (block === "attention") {
+    } else if (blockKind === "attention") {
       if (shouldPrefer(block, entry.rawLabels.attention)) {
         entry.rawLabels.attention = block;
+        if (rawMeta.model) entry.models.attention = rawMeta.model;
         entry.data.attentionQueue = parsed.attentionQueue;
       }
-    } else if (block === "themes") {
+    } else if (blockKind === "themes") {
       if (shouldPrefer(block, entry.rawLabels.themes)) {
         entry.rawLabels.themes = block;
+        if (rawMeta.model) entry.models.themes = rawMeta.model;
         entry.data.themes = parsed.themes;
       }
-    } else if (block.startsWith("employees-")) {
+    } else if (blockKind.startsWith("employees-")) {
+      if (rawMeta.model) {
+        entry.models.employees = [...new Set([...(entry.models.employees ?? []), rawMeta.model])];
+      }
       entry.employeeInsights = mergeEmployeeInsights(entry.employeeInsights, parsed.employeeInsights ?? []);
     }
     periods.set(periodId, entry);
@@ -145,7 +169,7 @@ async function main() {
       ...entry.data,
       employeeInsights: entry.employeeInsights,
       feishuTaskPlan: currentInsights.feishuTaskPlan,
-    }, { generatedAt: entry.generatedAt });
+    }, { generatedAt: entry.generatedAt, models: Object.keys(entry.models).length > 0 ? entry.models : undefined });
   }
 
   if (currentPeriodId) {

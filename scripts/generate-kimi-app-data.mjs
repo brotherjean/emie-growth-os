@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -6,6 +7,7 @@ const rootDir = process.cwd();
 const dataPath = path.join(rootDir, "src/data/prototypeData.json");
 const insightsPath = path.join(rootDir, "src/data/kimiInsights.json");
 const outputDir = path.join(rootDir, "outputs");
+const cacheSchemaVersion = 2;
 
 function parseEnvValue(value) {
   const trimmed = value.trim();
@@ -58,12 +60,19 @@ function compactEmployee(row) {
   };
 }
 
+function isActiveEmployee(row) {
+  return String(row?.["在职状态"] ?? "").trim() !== "离职";
+}
+
 function buildDataPack(raw) {
+  const activeEmployees = (raw.employee_summary ?? []).filter(isActiveEmployee);
+  const activeNames = new Set(activeEmployees.map((row) => row["姓名"]).filter(Boolean));
   const latestWeeksByName = new Map();
   const currentWeekId = raw.meta?.current_week_id;
   const currentWeekLabel = [raw.meta?.current_week_label, raw.meta?.current_week_range].filter(Boolean).join(" ");
   const currentWeeklyRecords = [];
   for (const row of raw.weekly_scores ?? []) {
+    if (!activeNames.has(row["姓名"])) continue;
     const isCurrentWeek =
       (currentWeekId && row["周期ID"] === currentWeekId) ||
       (currentWeekLabel && row["周次"] === currentWeekLabel);
@@ -96,7 +105,7 @@ function buildDataPack(raw) {
       exemptPeople: raw.meta?.exempt_people,
     },
     currentWeeklyRecords,
-    employees: (raw.employee_summary ?? []).map(compactEmployee),
+    employees: activeEmployees.map(compactEmployee),
     weeklyRecordsByEmployee: Object.fromEntries(
       Array.from(latestWeeksByName.entries()).map(([name, weeks]) => [name, weeks.slice(-9)]),
     ),
@@ -159,19 +168,20 @@ function textFromKimi(data) {
   return (message?.content || message?.reasoning_content || "").trim();
 }
 
-async function callKimi(env, prompt, maxTokens) {
+async function callKimi(env, prompt, maxTokens, { model, reasoningEffort } = {}) {
   const key = env.MOONSHOT_API_KEY || env.KIMI_API_KEY;
   if (!key) throw new Error("MOONSHOT_API_KEY is not configured");
   const baseUrl = stripTrailingSlash(env.MOONSHOT_BASE_URL || env.KIMI_BASE_URL || "https://api.moonshot.cn/v1");
-  const model = env.KIMI_DEEP_MODEL || env.KIMI_MODEL || "kimi-k2.6";
+  const resolvedModel = model || env.KIMI_DEEP_MODEL || env.KIMI_MODEL || "kimi-k2.6";
   const timeoutMs = Number(env.AI_ANALYSIS_TIMEOUT_MS || 240000);
+  const isK3 = resolvedModel === "kimi-k3";
   const data = await postJson(`${baseUrl}/chat/completions`, {
     timeoutMs,
     headers: {
       Authorization: `Bearer ${key}`,
     },
     body: {
-      model,
+      model: resolvedModel,
       messages: [
         {
           role: "system",
@@ -180,14 +190,14 @@ async function callKimi(env, prompt, maxTokens) {
         },
         { role: "user", content: prompt },
       ],
-      temperature: 0.6,
       max_completion_tokens: maxTokens,
-      thinking: {
-        type: "disabled",
-      },
+      response_format: { type: "json_object" },
+      ...(isK3
+        ? { reasoning_effort: reasoningEffort || env.KIMI_MANAGEMENT_REASONING_EFFORT || "high" }
+        : { temperature: 0.6, thinking: { type: "disabled" } }),
     },
   });
-  return { text: textFromKimi(data), model };
+  return { text: textFromKimi(data), model: resolvedModel };
 }
 
 function extractJson(text) {
@@ -205,15 +215,19 @@ function extractJson(text) {
   }
 }
 
-function normalizeInsights(value, { model, generatedAt }) {
+function normalizeInsights(value, { models, generatedAt }) {
   const insight = value && typeof value === "object" ? value : {};
+  const modelValues = Object.values(models ?? {}).flat().filter(Boolean);
+  const uniqueModels = [...new Set(modelValues)];
   return {
     meta: {
+      ...(insight.meta ?? {}),
       provider: "kimi",
-      model,
+      model: uniqueModels.length === 1 ? uniqueModels[0] : "mixed",
+      modelStrategy: "hybrid",
+      models,
       generatedAt,
       source: "prototypeData",
-      ...(insight.meta ?? {}),
     },
     executiveSummary: Array.isArray(insight.executiveSummary) ? insight.executiveSummary.slice(0, 8) : [],
     collectiveFocus: Array.isArray(insight.collectiveFocus) ? insight.collectiveFocus.slice(0, 8) : [],
@@ -239,46 +253,92 @@ function chunk(items, size) {
   return result;
 }
 
-async function callKimiJson(env, prompt, { label, maxTokens }) {
-  const model = env.KIMI_DEEP_MODEL || env.KIMI_MODEL || "kimi-k2.6";
+async function callKimiJson(env, prompt, { label, maxTokens, model, fallbackModel, reasoningEffort }) {
+  const requestedModel = model || env.KIMI_DEEP_MODEL || env.KIMI_MODEL || "kimi-k2.6";
+  const inputHash = createHash("sha256")
+    .update(JSON.stringify({ cacheSchemaVersion, requestedModel, prompt }))
+    .digest("hex");
   if (env.KIMI_APP_IGNORE_CACHE !== "1") {
-    for (const cachedLabel of [`${label}.retry`, label]) {
+    const cachedCandidates = [];
+    for (const cachedLabel of [label, `${label}.retry`]) {
       try {
+        const cachedMeta = JSON.parse(
+          await readFile(path.join(outputDir, `kimi-app-data.${cachedLabel}.meta.json`), "utf8"),
+        );
+        if (
+          cachedMeta.model !== requestedModel ||
+          cachedMeta.inputHash !== inputHash ||
+          cachedMeta.schemaVersion !== cacheSchemaVersion
+        ) continue;
         const cachedText = await readFile(path.join(outputDir, `kimi-app-data.${cachedLabel}.raw.txt`), "utf8");
-        return { parsed: extractJson(cachedText), model };
+        cachedCandidates.push({ cachedLabel, cachedMeta, cachedText });
       } catch {
-        // Ignore missing or partial raw files and regenerate the block.
+        // Cache without matching model, input and schema metadata is not safe to reuse.
+      }
+    }
+    cachedCandidates.sort((left, right) => Date.parse(right.cachedMeta.generatedAt || 0) - Date.parse(left.cachedMeta.generatedAt || 0));
+    for (const candidate of cachedCandidates) {
+      try {
+        return {
+          parsed: extractJson(candidate.cachedText),
+          model: candidate.cachedMeta.model,
+          rawLabel: candidate.cachedLabel,
+          inputHash,
+        };
+      } catch {
+        // Try the next matching cache candidate before calling the model.
       }
     }
   }
   const tokenAttempts = [maxTokens, Math.min(12000, Math.ceil(maxTokens * 1.8))];
   let lastError;
-  for (const [index, tokenBudget] of tokenAttempts.entries()) {
-    const attemptLabel = index === 0 ? label : `${label}.retry`;
-    let text = "";
-    let resolvedModel = model;
-    for (let networkAttempt = 1; networkAttempt <= 3; networkAttempt += 1) {
-      try {
-        const result = await callKimi(env, prompt, tokenBudget);
-        text = result.text;
-        resolvedModel = result.model;
-        break;
-      } catch (error) {
-        lastError = error;
-        if (networkAttempt < 3) {
-          console.log(`Kimi app data: ${label} request failed, retrying ${networkAttempt + 1}/3`);
-          await new Promise((resolve) => setTimeout(resolve, 1500 * networkAttempt));
+  const modelCandidates = [...new Set([requestedModel, fallbackModel].filter(Boolean))];
+  for (const candidateModel of modelCandidates) {
+    if (candidateModel !== requestedModel) {
+      console.log(`Kimi app data: ${label} falling back from ${requestedModel} to ${candidateModel}`);
+    }
+    for (const [index, tokenBudget] of tokenAttempts.entries()) {
+      const attemptLabel = index === 0 ? label : `${label}.retry`;
+      let text = "";
+      for (let networkAttempt = 1; networkAttempt <= 3; networkAttempt += 1) {
+        try {
+          const result = await callKimi(env, prompt, tokenBudget, {
+            model: candidateModel,
+            reasoningEffort,
+          });
+          text = result.text;
+          break;
+        } catch (error) {
+          lastError = error;
+          if (networkAttempt < 3) {
+            console.log(`Kimi app data: ${label} ${candidateModel} request failed, retrying ${networkAttempt + 1}/3`);
+            await new Promise((resolve) => setTimeout(resolve, 1500 * networkAttempt));
+          }
         }
       }
-    }
-    if (!text) continue;
-    await writeFile(path.join(outputDir, `kimi-app-data.${attemptLabel}.raw.txt`), text, "utf8");
-    try {
-      return { parsed: extractJson(text), model: resolvedModel };
-    } catch (error) {
-      lastError = error;
-      if (index < tokenAttempts.length - 1) {
-        console.log(`Kimi app data: ${label} JSON parse failed, retrying with ${tokenAttempts[index + 1]} tokens`);
+      if (!text) break;
+      const generatedAt = new Date().toISOString();
+      await Promise.all([
+        writeFile(path.join(outputDir, `kimi-app-data.${attemptLabel}.raw.txt`), text, "utf8"),
+        writeFile(
+          path.join(outputDir, `kimi-app-data.${attemptLabel}.meta.json`),
+          `${JSON.stringify({
+            schemaVersion: cacheSchemaVersion,
+            model: candidateModel,
+            requestedModel,
+            inputHash,
+            generatedAt,
+          }, null, 2)}\n`,
+          "utf8",
+        ),
+      ]);
+      try {
+        return { parsed: extractJson(text), model: candidateModel, rawLabel: attemptLabel, inputHash };
+      } catch (error) {
+        lastError = error;
+        if (index < tokenAttempts.length - 1) {
+          console.log(`Kimi app data: ${label} JSON parse failed, retrying with ${tokenAttempts[index + 1]} tokens`);
+        }
       }
     }
   }
@@ -513,27 +573,46 @@ async function main() {
   const [env, rawText] = await Promise.all([loadDotEnv(path.join(rootDir, ".env")), readFile(dataPath, "utf8")]);
   const dataPack = buildDataPack(JSON.parse(rawText));
   const cachePrefix = safeLabel(dataPack.currentWeek.id || dataPack.currentWeek.label);
+  const managementModel = env.KIMI_MANAGEMENT_MODEL || "kimi-k3";
+  const managementFallbackModel =
+    env.KIMI_MANAGEMENT_FALLBACK_MODEL || env.KIMI_DEEP_MODEL || env.KIMI_MODEL || "kimi-k2.6";
+  const employeeModel = env.KIMI_EMPLOYEE_MODEL || env.KIMI_DEEP_MODEL || env.KIMI_MODEL || "kimi-k2.6";
   await mkdir(outputDir, { recursive: true });
 
   console.log("Kimi app data: running briefing analysis");
   const briefing = await callKimiJson(env, buildBriefingPrompt(dataPack), {
     label: `${cachePrefix}-briefing`,
     maxTokens: Number(env.KIMI_APP_BRIEFING_MAX_TOKENS || 3200),
+    model: managementModel,
+    fallbackModel: managementFallbackModel,
+    reasoningEffort: env.KIMI_MANAGEMENT_REASONING_EFFORT || "high",
   });
 
   console.log("Kimi app data: running attention queue analysis");
   const attention = await callKimiJson(env, buildAttentionPrompt(dataPack), {
     label: `${cachePrefix}-attention`,
     maxTokens: Number(env.KIMI_APP_ATTENTION_MAX_TOKENS || 4200),
+    model: managementModel,
+    fallbackModel: managementFallbackModel,
+    reasoningEffort: env.KIMI_MANAGEMENT_REASONING_EFFORT || "high",
   });
 
   console.log("Kimi app data: running theme radar analysis");
   const themes = await callKimiJson(env, buildThemesPrompt(dataPack), {
     label: `${cachePrefix}-themes`,
     maxTokens: Number(env.KIMI_APP_THEMES_MAX_TOKENS || 4600),
+    model: managementModel,
+    fallbackModel: managementFallbackModel,
+    reasoningEffort: env.KIMI_MANAGEMENT_REASONING_EFFORT || "high",
   });
 
   const employeeInsights = [];
+  const employeeModels = new Set();
+  const runBlocks = [
+    { kind: "briefing", rawLabel: briefing.rawLabel, model: briefing.model, inputHash: briefing.inputHash },
+    { kind: "attention", rawLabel: attention.rawLabel, model: attention.model, inputHash: attention.inputHash },
+    { kind: "themes", rawLabel: themes.rawLabel, model: themes.model, inputHash: themes.inputHash },
+  ];
   const batches = chunk(dataPack.employees, Number(env.KIMI_APP_BATCH_SIZE || 3));
   for (const [index, batch] of batches.entries()) {
     const label = `${cachePrefix}-employees-${String(index + 1).padStart(2, "0")}`;
@@ -542,7 +621,10 @@ async function main() {
       const result = await callKimiJson(env, buildEmployeeBatchPrompt(dataPack, batch), {
         label,
         maxTokens: Number(env.KIMI_APP_EMPLOYEE_MAX_TOKENS || 7600),
+        model: employeeModel,
       });
+      employeeModels.add(result.model);
+      runBlocks.push({ kind: "employees", rawLabel: result.rawLabel, model: result.model, inputHash: result.inputHash });
       employeeInsights.push(...(Array.isArray(result.parsed.employeeInsights) ? result.parsed.employeeInsights : []));
     } catch (error) {
       if (batch.length <= 1) throw error;
@@ -552,7 +634,10 @@ async function main() {
         const result = await callKimiJson(env, buildEmployeeBatchPrompt(dataPack, [employee]), {
           label: singleLabel,
           maxTokens: Number(env.KIMI_APP_SINGLE_EMPLOYEE_MAX_TOKENS || 3200),
+          model: employeeModel,
         });
+        employeeModels.add(result.model);
+        runBlocks.push({ kind: "employees", rawLabel: result.rawLabel, model: result.model, inputHash: result.inputHash });
         employeeInsights.push(...(Array.isArray(result.parsed.employeeInsights) ? result.parsed.employeeInsights : []));
       }
     }
@@ -564,9 +649,27 @@ async function main() {
     ...themes.parsed,
     employeeInsights,
   };
-  const insights = normalizeInsights(parsed, { model: briefing.model, generatedAt: new Date().toISOString() });
+  const insights = normalizeInsights(parsed, {
+    models: {
+      briefing: briefing.model,
+      attention: attention.model,
+      themes: themes.model,
+      employees: [...employeeModels],
+    },
+    generatedAt: new Date().toISOString(),
+  });
   await writeFile(insightsPath, `${JSON.stringify(insights, null, 2)}\n`, "utf8");
   await writeFile(path.join(outputDir, "kimi-app-data.json"), `${JSON.stringify(insights, null, 2)}\n`, "utf8");
+  await writeFile(
+    path.join(outputDir, `kimi-app-data.${cachePrefix}.run.json`),
+    `${JSON.stringify({
+      schemaVersion: cacheSchemaVersion,
+      periodId: dataPack.currentWeek.id,
+      generatedAt: insights.meta.generatedAt,
+      blocks: runBlocks,
+    }, null, 2)}\n`,
+    "utf8",
+  );
   console.log(`Kimi app data: OK (${Math.round(performance.now() - started)}ms)`);
   console.log(`Wrote: ${insightsPath}`);
 }

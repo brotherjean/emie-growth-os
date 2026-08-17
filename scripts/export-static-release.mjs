@@ -40,6 +40,8 @@ async function main() {
     app: "weekly-report-os",
     sourceGeneratedAt: insights.meta?.generatedAt,
     model: insights.meta?.model,
+    modelStrategy: insights.meta?.modelStrategy,
+    models: insights.meta?.models,
     validation: {
       employees: validation.insightEmployees,
       attentionQueue: validation.attentionQueue,

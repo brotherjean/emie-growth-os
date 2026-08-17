@@ -71,11 +71,17 @@ function compact(value, maxLength = 420) {
 function buildPack(raw, insightsByPeriod, monthKey) {
   const previousKey = previousMonthKey(monthKey);
   const year = monthKey.slice(0, 4);
+  const activeNames = new Set(
+    (raw.employee_summary ?? [])
+      .filter((row) => String(row?.["在职状态"] ?? "在职").trim() !== "离职")
+      .map((row) => row["姓名"])
+      .filter(Boolean),
+  );
   const periods = raw.meta?.periods ?? [];
   const periodMonth = new Map(periods.map((period) => [period.id, periodMonthKey(period, year)]));
   const periodLabels = new Map(periods.map((period) => [period.id, `${period.label} ${period.range}`.trim()]));
   const rowsFor = (targetMonth) => (raw.weekly_scores ?? [])
-    .filter((row) => periodMonth.get(row["周期ID"]) === targetMonth)
+    .filter((row) => periodMonth.get(row["周期ID"]) === targetMonth && activeNames.has(row["姓名"]))
     .map((row) => ({
       name: row["姓名"],
       department: row["部门"],

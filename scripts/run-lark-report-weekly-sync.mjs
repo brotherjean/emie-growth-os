@@ -239,9 +239,16 @@ async function main() {
       { message: "正在合并本周数据到成长 OS 历史库" },
     );
 
+    await runStep("sync_active_roster", "npm", ["run", "roster:sync"], {
+      message: "正在按成长 OS 在职花名册更新分析范围",
+    });
+
     await runStep("kimi_analysis", "npm", ["run", "ai:app-data"], {
       message: "正在运行 Kimi 周报预处理",
       env: { KIMI_APP_IGNORE_CACHE: "1" },
+    });
+    await runStep("period_kimi_insights", "npm", ["run", "static:period-insights"], {
+      message: "正在把本周 Kimi 分析纳入跨周与月度上下文",
     });
     const monthlyMeetingOutput = await runStep("kimi_monthly_meeting", "npm", ["run", "ai:monthly-meeting"], {
       message: "正在生成并归档月度经营复盘",

@@ -15,6 +15,7 @@
     "import:scoring360": "node scripts/import-scoring360.mjs",
     "sync:lark-report": "node scripts/sync-lark-report.mjs",
     "sync:lark-report:weekly": "node scripts/run-lark-report-weekly-sync.mjs",
+    "roster:sync": "node scripts/sync-active-roster-to-prototype.mjs",
     "reminders:prepare": "node scripts/prepare-weekly-reminder-outbox.mjs",
     "feishu:tasks": "node scripts/create-feishu-tasks.mjs",
     "static:normalize": "node scripts/normalize-kimi-insights.mjs",
