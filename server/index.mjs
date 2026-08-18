@@ -54,6 +54,7 @@ const config = {
   weeklyUpdateReminderHour: Number(process.env.WEEKLY_UPDATE_REMINDER_HOUR || 10),
   weeklyUpdateReminderMinute: Number(process.env.WEEKLY_UPDATE_REMINDER_MINUTE || 30),
   scoring360ReminderEnabled: process.env.SCORING360_REMINDER_ENABLED === "true",
+  scoring360ManualOnly: process.env.SCORING360_MANUAL_ONLY !== "false",
   scoring360ReminderDayOfMonth: Number(process.env.SCORING360_REMINDER_DAY_OF_MONTH || 15),
   scoring360ReminderDaysOfMonth: parseScoring360LaunchDays(
     process.env.SCORING360_REMINDER_DAYS_OF_MONTH,
@@ -114,7 +115,7 @@ server.listen(config.port, () => {
 scheduleWeeklyLarkReportSync();
 scheduleWeeklyGrowthReminder();
 scheduleWeeklyUpdateReminder();
-scheduleScoring360Reminder();
+if (!config.scoring360ManualOnly) scheduleScoring360Reminder();
 scheduleLarkAuthMonitor();
 
 async function route(req, res) {
@@ -274,6 +275,21 @@ async function route(req, res) {
 
   if (req.method === "GET" && url.pathname === "/api/roster/audit") {
     await getRosterAudit(req, res, url);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/employees/manage") {
+    await listManagedEmployees(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/employees/manage") {
+    await saveManagedEmployee(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/employees/manage/status") {
+    await updateManagedEmployeeStatus(req, res);
     return;
   }
 
@@ -1289,8 +1305,9 @@ async function getScoring360Config(req, res, url) {
     return;
   }
   const cycleId = await resolveScoring360CycleId(url.searchParams.get("cycleId"), { ensureCurrentRound: true });
+  const activeEmployees = (await loadManagedEmployees()).filter((employee) => employee.active);
   if (!cycleId) {
-    sendJson(res, 200, { ok: true, cycle: null, employees: employeeDirectory, assignments: [], diagnosis: scoring360Diagnosis() });
+    sendJson(res, 200, { ok: true, cycle: null, employees: activeEmployees, assignments: [], diagnosis: scoring360Diagnosis() });
     return;
   }
 
@@ -1314,7 +1331,7 @@ async function getScoring360Config(req, res, url) {
   sendJson(res, 200, {
     ok: true,
     cycle: cycleRows[0] ? formatScoring360Cycle(cycleRows[0]) : null,
-    employees: employeeDirectory,
+    employees: activeEmployees,
     assignments: assignmentRows.map(formatScoring360ConfigAssignment),
     diagnosis: scoring360Diagnosis(),
   });
@@ -1347,6 +1364,7 @@ async function getScoring360ReminderStatus(req, res, url) {
   `) : [];
   sendJson(res, 200, {
     ok: true,
+    mode: config.scoring360ManualOnly ? "manual" : "scheduled",
     enabled: config.scoring360ReminderEnabled,
     schedule: {
       dayOfMonth: config.scoring360ReminderDaysOfMonth[0] || config.scoring360ReminderDayOfMonth,
@@ -1479,6 +1497,119 @@ async function getRosterAudit(req, res) {
     knownDepartedStillConfigured,
     note: "这里只做花名册健康检查，不自动删除或新增评分关系；新入职人员需要确认 open_id 后再进入提醒和评分对象池。",
   });
+}
+
+async function listManagedEmployees(req, res) {
+  const session = getSession(req);
+  if (!session && config.authMode !== "mock") {
+    sendJson(res, 401, { ok: false, error: "unauthorized" });
+    return;
+  }
+  if (isExternalSession(session) || !isBossSession(session)) {
+    sendJson(res, 403, { ok: false, error: "boss_only" });
+    return;
+  }
+  sendJson(res, 200, { ok: true, employees: await loadManagedEmployees() });
+}
+
+async function saveManagedEmployee(req, res) {
+  const session = getSession(req);
+  if (!session && config.authMode !== "mock") {
+    sendJson(res, 401, { ok: false, error: "unauthorized" });
+    return;
+  }
+  if (isExternalSession(session) || !isBossSession(session)) {
+    sendJson(res, 403, { ok: false, error: "boss_only" });
+    return;
+  }
+  const body = await readJsonBody(req, { limitBytes: 30_000 });
+  const openId = String(body.openId || body.open_id || "").trim();
+  const name = normalizeUserName(body.name);
+  const department = String(body.department || "").trim();
+  const email = String(body.email || "").trim().toLowerCase();
+  if (!openId || !name) {
+    sendJson(res, 400, { ok: false, error: "employee_open_id_and_name_required" });
+    return;
+  }
+  await execSql(`
+    INSERT INTO employees (open_id, name, department, email, is_active, updated_at)
+    VALUES (${sqlValue(openId)}, ${sqlValue(name)}, ${sqlValue(department)}, ${sqlValue(email)}, 1, datetime('now'))
+    ON CONFLICT(open_id) DO UPDATE SET
+      name = excluded.name,
+      department = excluded.department,
+      email = excluded.email,
+      is_active = 1,
+      updated_at = datetime('now');
+  `);
+  const employee = (await loadManagedEmployees()).find((item) => item.openId === openId) || null;
+  sendJson(res, 200, { ok: true, employee });
+}
+
+async function updateManagedEmployeeStatus(req, res) {
+  const session = getSession(req);
+  if (!session && config.authMode !== "mock") {
+    sendJson(res, 401, { ok: false, error: "unauthorized" });
+    return;
+  }
+  if (isExternalSession(session) || !isBossSession(session)) {
+    sendJson(res, 403, { ok: false, error: "boss_only" });
+    return;
+  }
+  const body = await readJsonBody(req, { limitBytes: 10_000 });
+  const openId = String(body.openId || body.open_id || "").trim();
+  if (!openId) {
+    sendJson(res, 400, { ok: false, error: "employee_open_id_required" });
+    return;
+  }
+  const active = body.active !== false;
+  const directoryEmployee = employeeDirectory.find((item) => item.openId === openId);
+  const name = normalizeUserName(body.name || directoryEmployee?.name);
+  if (!name) {
+    sendJson(res, 404, { ok: false, error: "employee_not_found" });
+    return;
+  }
+  await execSql(`
+    INSERT INTO employees (open_id, name, department, email, is_active, updated_at)
+    VALUES (${sqlValue(openId)}, ${sqlValue(name)}, ${sqlValue(body.department || directoryEmployee?.department || "")},
+            ${sqlValue(body.email || directoryEmployee?.email || "")}, ${active ? 1 : 0}, datetime('now'))
+    ON CONFLICT(open_id) DO UPDATE SET
+      is_active = excluded.is_active,
+      updated_at = datetime('now');
+  `);
+  const employee = (await loadManagedEmployees()).find((item) => item.openId === openId) || null;
+  if (!employee) {
+    sendJson(res, 404, { ok: false, error: "employee_not_found" });
+    return;
+  }
+  sendJson(res, 200, { ok: true, employee });
+}
+
+async function loadManagedEmployees() {
+  const rows = await querySqlRows(`
+    SELECT open_id, name, department, email, manager_open_id, role_level, is_active, updated_at
+    FROM employees
+    ORDER BY is_active DESC, department ASC, name ASC;
+  `).catch(() => []);
+  const merged = new Map(employeeDirectory.map((employee) => [employee.openId || `name:${employee.name}`, {
+    ...employee,
+    active: true,
+    source: "directory",
+    updatedAt: "",
+  }]));
+  for (const row of rows) {
+    merged.set(row.open_id || `name:${row.name}`, {
+      openId: row.open_id,
+      name: row.name,
+      department: row.department || "",
+      email: row.email || "",
+      managerOpenId: row.manager_open_id || "",
+      roleLevel: row.role_level || "",
+      active: Number(row.is_active || 0) === 1,
+      source: "database",
+      updatedAt: row.updated_at || "",
+    });
+  }
+  return Array.from(merged.values()).sort((a, b) => Number(b.active) - Number(a.active) || a.department.localeCompare(b.department, "zh-CN") || a.name.localeCompare(b.name, "zh-CN"));
 }
 
 async function loadScoring360Cycle(cycleId) {
@@ -1715,8 +1846,11 @@ async function createScoring360Assignment(req, res) {
     sendJson(res, 400, { ok: false, error: "invalid_assignment" });
     return;
   }
-  const evaluee = findDirectoryEmployeeByName(evalueeName);
-  const evaluator = findDirectoryEmployeeByName(evaluatorName);
+  const managedEmployees = await loadManagedEmployees();
+  const evaluee = managedEmployees.find((employee) => employee.active && normalizeUserName(employee.name) === evalueeName)
+    || findDirectoryEmployeeByName(evalueeName);
+  const evaluator = managedEmployees.find((employee) => employee.active && normalizeUserName(employee.name) === evaluatorName)
+    || findDirectoryEmployeeByName(evaluatorName);
   const assignmentId = `sc360-${createHash("sha1").update(`${cycleId}:${evalueeName}:${evaluatorName}`).digest("hex").slice(0, 20)}`;
   await execSql(`
     INSERT INTO scoring360_assignments (

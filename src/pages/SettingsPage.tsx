@@ -40,6 +40,16 @@ interface BossViewMember {
   department: string;
 }
 
+interface ManagedEmployee {
+  openId: string;
+  name: string;
+  department?: string;
+  email?: string;
+  active: boolean;
+  source?: string;
+  updatedAt?: string;
+}
+
 interface LarkReportSyncStatus {
   ok?: boolean;
   running?: boolean;
@@ -123,6 +133,7 @@ interface Scoring360Config {
 }
 
 interface Scoring360ReminderStatus {
+  mode?: "manual" | "scheduled";
   enabled?: boolean;
   schedule?: {
     dayOfMonth: number;
@@ -227,6 +238,13 @@ export function SettingsPage({ access }: SettingsPageProps) {
   const [externalLinks, setExternalLinks] = useState<ExternalLink[]>([]);
   const [bossViewMembers, setBossViewMembers] = useState<BossViewMember[]>([]);
   const [bossViewState, setBossViewState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [managedEmployees, setManagedEmployees] = useState<ManagedEmployee[]>([]);
+  const [employeeName, setEmployeeName] = useState("");
+  const [employeeOpenId, setEmployeeOpenId] = useState("");
+  const [employeeDepartment, setEmployeeDepartment] = useState("");
+  const [employeeEmail, setEmployeeEmail] = useState("");
+  const [employeeManageState, setEmployeeManageState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [employeeManageError, setEmployeeManageError] = useState("");
   const [externalName, setExternalName] = useState("外部顾问临时访问");
   const [ttlHours, setTtlHours] = useState("72");
   const [generatedUrl, setGeneratedUrl] = useState("");
@@ -254,18 +272,22 @@ export function SettingsPage({ access }: SettingsPageProps) {
   const [scoring360ReminderStatus, setScoring360ReminderStatus] = useState<Scoring360ReminderStatus | null>(null);
   const [scoring360ReminderState, setScoring360ReminderState] = useState<"idle" | "running" | "done" | "error">("idle");
   const [scoring360ReminderError, setScoring360ReminderError] = useState("");
+  const [scoring360ReminderResult, setScoring360ReminderResult] = useState<{
+    dryRun?: boolean;
+    sent?: number;
+    failed?: number;
+    skipped?: number;
+    dryRunCount?: number;
+  } | null>(null);
   const [rosterAudit, setRosterAudit] = useState<RosterAuditStatus | null>(null);
   const [accountActivity, setAccountActivity] = useState<AccountActivityStatus | null>(null);
   const bossView = access ? Boolean(access.bossView) : true;
   const canManageScoring360 = access ? Boolean(access.bossView || access.canManageScoring360) : true;
-  const scoring360ScheduleDays = scoring360ReminderStatus?.schedule?.daysOfMonth?.length
-    ? scoring360ReminderStatus.schedule.daysOfMonth.join(" / ")
-    : String(scoring360ReminderStatus?.schedule?.dayOfMonth || 15);
-
   useEffect(() => {
     if (bossView) {
       loadExternalLinks();
       loadBossViewMembers();
+      loadManagedEmployees();
       loadLarkReportSyncStatus();
       loadWeeklyReminderStatus();
       loadRosterAudit();
@@ -302,6 +324,70 @@ export function SettingsPage({ access }: SettingsPageProps) {
       setBossViewMembers(Array.isArray(result.members) ? result.members : []);
     } catch {
       // Static preview keeps this as a visual configuration mock.
+    }
+  }
+
+  async function loadManagedEmployees() {
+    try {
+      const response = await fetch("/api/employees/manage");
+      if (!response.ok) return;
+      const result = await response.json();
+      setManagedEmployees(Array.isArray(result.employees) ? result.employees : []);
+    } catch {
+      // Static preview keeps the personnel panel empty.
+    }
+  }
+
+  async function saveManagedEmployee() {
+    if (!employeeName.trim() || !employeeOpenId.trim()) return;
+    setEmployeeManageState("saving");
+    setEmployeeManageError("");
+    try {
+      const response = await fetch("/api/employees/manage", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: employeeName,
+          openId: employeeOpenId,
+          department: employeeDepartment,
+          email: employeeEmail,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "save_employee_failed");
+      setEmployeeName("");
+      setEmployeeOpenId("");
+      setEmployeeDepartment("");
+      setEmployeeEmail("");
+      await loadManagedEmployees();
+      await loadRosterAudit();
+      await loadScoring360Config();
+      setEmployeeManageState("saved");
+    } catch (error) {
+      setEmployeeManageError(error instanceof Error ? error.message : "保存人员失败");
+      setEmployeeManageState("error");
+    }
+  }
+
+  async function setManagedEmployeeActive(employee: ManagedEmployee, active: boolean) {
+    if (!active && !window.confirm(`确认停用 ${employee.name}？历史周报和评分会保留，但该员工将退出活跃人员名单。`)) return;
+    setEmployeeManageState("saving");
+    setEmployeeManageError("");
+    try {
+      const response = await fetch("/api/employees/manage/status", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ openId: employee.openId, name: employee.name, department: employee.department, email: employee.email, active }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "update_employee_status_failed");
+      await loadManagedEmployees();
+      await loadRosterAudit();
+      await loadScoring360Config();
+      setEmployeeManageState("saved");
+    } catch (error) {
+      setEmployeeManageError(error instanceof Error ? error.message : "更新人员状态失败");
+      setEmployeeManageState("error");
     }
   }
 
@@ -391,6 +477,7 @@ export function SettingsPage({ access }: SettingsPageProps) {
       const result = await response.json();
       setScoring360Config({
         cycle: result.cycle || null,
+        employees: Array.isArray(result.employees) ? result.employees : [],
         assignments: Array.isArray(result.assignments) ? result.assignments : [],
         diagnosis: result.diagnosis,
       });
@@ -433,8 +520,18 @@ export function SettingsPage({ access }: SettingsPageProps) {
   }
 
   async function sendScoring360Reminder(kind: "launch" | "followup", dryRun = true) {
+    if (!dryRun) {
+      const deliverableCount = (scoring360ReminderStatus?.pending || []).filter((item) => item.deliverable).length;
+      const missingCount = (scoring360ReminderStatus?.pending || []).filter((item) => !item.deliverable).length;
+      const actionLabel = kind === "followup" ? "向未完成人员发送补提醒" : "发起本轮成长评分";
+      const confirmed = window.confirm(
+        `确认${actionLabel}？将向 ${deliverableCount} 位员工发送飞书通知${missingCount ? `，另有 ${missingCount} 人因缺少 open_id 无法通知` : ""}。`,
+      );
+      if (!confirmed) return;
+    }
     setScoring360ReminderState("running");
     setScoring360ReminderError("");
+    setScoring360ReminderResult(null);
     try {
       const response = await fetch("/api/scoring360/reminders/send", {
         method: "POST",
@@ -443,6 +540,7 @@ export function SettingsPage({ access }: SettingsPageProps) {
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "send_scoring360_reminder_failed");
+      setScoring360ReminderResult(result);
       await loadScoring360ReminderStatus();
       setScoring360ReminderState("done");
     } catch (error) {
@@ -604,6 +702,39 @@ export function SettingsPage({ access }: SettingsPageProps) {
           {bossViewState === "error" ? <span className="settings-error">保存失败，请确认当前账号有老板视角权限。</span> : null}
         </div>
       </article>
+      <article className="panel employee-manage-panel">
+        <div className="panel-heading compact">
+          <div>
+            <span className="section-label">People</span>
+            <h2>人员增减与花名册</h2>
+          </div>
+          <span className="boss-access-count">在职 {managedEmployees.filter((employee) => employee.active).length} 人</span>
+        </div>
+        <p className="boss-access-copy">新增或更新人员后会进入系统花名册；停用人员不会删除历史周报、评分和审计记录。飞书 open_id 用于登录、身份匹配和接收评分通知。</p>
+        <div className="employee-manage-form">
+          <label><span>姓名 *</span><input value={employeeName} onChange={(event) => setEmployeeName(event.target.value)} placeholder="员工姓名" /></label>
+          <label><span>飞书 open_id *</span><input value={employeeOpenId} onChange={(event) => setEmployeeOpenId(event.target.value)} placeholder="ou_xxx" /></label>
+          <label><span>部门</span><input value={employeeDepartment} onChange={(event) => setEmployeeDepartment(event.target.value)} placeholder="所属部门" /></label>
+          <label><span>企业邮箱</span><input type="email" value={employeeEmail} onChange={(event) => setEmployeeEmail(event.target.value)} placeholder="name@company.com" /></label>
+          <button className="primary-button" type="button" onClick={saveManagedEmployee} disabled={employeeManageState === "saving" || !employeeName.trim() || !employeeOpenId.trim()}>
+            {employeeManageState === "saving" ? "保存中…" : "新增或更新人员"}
+          </button>
+        </div>
+        <div className="employee-manage-list">
+          {managedEmployees.map((employee) => (
+            <div className={employee.active ? "" : "is-inactive"} key={employee.openId || employee.name}>
+              <span><strong>{employee.name}</strong><small>{employee.department || "未填部门"} · {employee.openId || "缺少 open_id"}</small></span>
+              <span className={employee.active ? "employee-status-active" : "employee-status-inactive"}>{employee.active ? "在职" : "已停用"}</span>
+              <button className="secondary-button" type="button" onClick={() => setManagedEmployeeActive(employee, !employee.active)} disabled={employeeManageState === "saving" || !employee.openId}>
+                {employee.active ? "停用" : "恢复"}
+              </button>
+            </div>
+          ))}
+          {managedEmployees.length === 0 ? <p className="empty-state">暂无人员数据，请先同步周报或新增员工。</p> : null}
+        </div>
+        {employeeManageState === "saved" ? <p className="settings-success">人员名单已更新。</p> : null}
+        {employeeManageError ? <p className="settings-error">人员维护失败：{employeeManageError}</p> : null}
+      </article>
         </>
       ) : null}
       {canManageScoring360 ? (
@@ -687,21 +818,24 @@ export function SettingsPage({ access }: SettingsPageProps) {
             <h2>协同360评分任务提醒</h2>
           </div>
           <span className="scoring360-live-badge">
-            {scoring360ReminderStatus?.enabled ? "自动已开启" : "自动未开启"}
+            {scoring360ReminderStatus?.mode === "scheduled" ? "定时模式" : "手动模式"}
           </span>
         </div>
         <div className="scoring360-config-copy">
           <strong>{scoring360ReminderStatus?.cycle?.label || "当前周期"}</strong>
           <span>
-            默认每月 {scoring360ScheduleDays} 日启动，24 小时完成；48 小时仍未完成则补提醒。当前自动开关由服务器 .env 控制。
+            管理员确认待评分名单后手动发起；员工会收到飞书通知并进入“我要评分”页面完成操作。发起后 24 小时完成，未完成人员可由管理员手动补提醒。
           </span>
         </div>
         <div className="scoring360-reminder-actions">
+          <button className="primary-button" type="button" onClick={() => sendScoring360Reminder("launch", false)} disabled={scoring360ReminderState === "running" || !(scoring360ReminderStatus?.pending || []).some((item) => item.deliverable)}>
+            {scoring360ReminderState === "running" ? "发送中…" : "发起评分并通知员工"}
+          </button>
           <button className="secondary-button" type="button" onClick={() => sendScoring360Reminder("launch", true)} disabled={scoring360ReminderState === "running"}>
-            dry-run 预览首轮提醒
+            预览通知
           </button>
           <button className="secondary-button" type="button" onClick={() => sendScoring360Reminder("followup", true)} disabled={scoring360ReminderState === "running"}>
-            dry-run 预览48小时补提醒
+            预览补提醒
           </button>
           <button className="secondary-button" type="button" onClick={loadScoring360ReminderStatus}>
             刷新
@@ -721,7 +855,13 @@ export function SettingsPage({ access }: SettingsPageProps) {
           <span>最近发送记录 {scoring360ReminderStatus?.sends?.length || 0} 条</span>
           <span>身份：{scoring360ReminderStatus?.schedule?.identity || "bot"}</span>
         </div>
-        {scoring360ReminderState === "done" ? <p className="settings-success">提醒任务已处理，当前默认 dry-run 不会真实发送。</p> : null}
+        {scoring360ReminderState === "done" ? (
+          <p className="settings-success">
+            {scoring360ReminderResult?.dryRun
+              ? `预览完成，共 ${scoring360ReminderResult.dryRunCount || 0} 条通知，不会真实发送。`
+              : `评分已发起：成功通知 ${scoring360ReminderResult?.sent || 0} 人，失败 ${scoring360ReminderResult?.failed || 0} 人，已发送过而跳过 ${scoring360ReminderResult?.skipped || 0} 人。`}
+          </p>
+        ) : null}
         {scoring360ReminderError ? <p className="settings-error">360 提醒失败：{scoring360ReminderError}</p> : null}
       </article>
         </>

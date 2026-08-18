@@ -2218,6 +2218,96 @@ button {
   flex-wrap: wrap;
 }
 
+.employee-manage-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.employee-manage-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.employee-manage-form label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.employee-manage-form input {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #172033;
+}
+
+.employee-manage-form .primary-button {
+  align-self: end;
+  justify-self: start;
+}
+
+.employee-manage-list {
+  display: grid;
+  gap: 8px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.employee-manage-list > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.employee-manage-list > div.is-inactive {
+  background: #f8fafc;
+  opacity: 0.72;
+}
+
+.employee-manage-list > div > span:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.employee-manage-list strong {
+  color: #172033;
+  font-size: 13px;
+}
+
+.employee-manage-list small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.employee-status-active,
+.employee-status-inactive {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.employee-status-active {
+  color: #047857;
+  background: #d1fae5;
+}
+
+.employee-status-inactive {
+  color: #64748b;
+  background: #e2e8f0;
+}
+
 .scoring360-config-panel {
   display: grid;
   gap: 12px;
