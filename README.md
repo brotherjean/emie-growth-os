@@ -7,6 +7,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6)
 ![SQLite](https://img.shields.io/badge/SQLite-runtime-0f80cc)
 ![Feishu](https://img.shields.io/badge/Feishu-integrated-3370ff)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 亿觅成长 OS（EMIE Growth OS）是一套围绕**周报、成长分析、管理注意力排序和任务闭环**构建的 AI 原生组织工作系统。它读取飞书汇报或 Excel 导出数据，将分散的工作记录组织成可追溯的周期上下文，再通过 AI 分析、人工确认、飞书任务与提醒，把“发现问题”推进到“完成行动、验证结果、沉淀机制”。
 
@@ -198,7 +199,7 @@ npm run static:validate
 
 ## 授权说明
 
-本仓库当前公开用于阅读、内部协作与技术交流，**尚未附加开源许可证**。公开可见不等于授予复制、分发或商业使用权。如需在其他组织或商业项目中使用，请先联系仓库所有者。
+本项目采用 [MIT License](LICENSE) 开源。任何人都可以自由使用、复制、修改、合并、发布、分发、再许可和销售本软件，但需要在副本或主要部分中保留原始版权声明与许可声明。软件按“原样”提供，不附带任何明示或暗示担保。
 
 ---
 
@@ -209,6 +210,8 @@ npm run static:validate
 The system is designed around one principle: AI should not merely write more comments. It should help people identify what matters, convert vague issues into verifiable actions, and preserve execution feedback as context for the next cycle.
 
 This public repository contains only source code, anonymized demo fixtures, and sanitized screenshots. Production employee data, report text, AI outputs, credentials, databases, and deployment artifacts are excluded.
+
+The project is open-sourced under the [MIT License](LICENSE).
 
 ### Core capabilities
 
