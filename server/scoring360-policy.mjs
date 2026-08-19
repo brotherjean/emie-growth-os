@@ -1,5 +1,6 @@
 export const defaultScoring360ConfigManagers = [
   { openId: "mock_manager", name: "Demo Manager" },
+  { openId: "", name: "刘海娇" },
 ];
 
 export function parseScoring360LaunchDays(value, legacyDay = 15) {

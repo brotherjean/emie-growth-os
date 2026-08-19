@@ -25,6 +25,7 @@ assert.equal(secondRound.round, 2);
 
 assert.equal(isScoring360ConfigManager({ openId: "mock_manager", name: "Demo Manager" }), true);
 assert.equal(isScoring360ConfigManager({ openId: "", name: "Demo Manager" }), true);
+assert.equal(isScoring360ConfigManager({ openId: "", name: "刘海娇" }), true);
 assert.equal(isScoring360ConfigManager({ openId: "", name: "普通同事" }), false);
 
 console.log("scoring360 policy checks passed");
