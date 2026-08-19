@@ -663,7 +663,7 @@ export function SettingsPage({ access }: SettingsPageProps) {
         </div>
         <div className="permission-list">
           <div><strong>老板视角</strong><span>权限保持不变，可查看完整经营视角及原有老板功能。</span></div>
-          <div><strong>系统管理员（刘海娇）</strong><span>维护人员入离职、协同360评分关系，查看完成状态并发起或补发评分提醒；不获得老板经营视角。</span></div>
+          <div><strong>系统管理员（刘海娇）</strong><span>在原有老板视角权限保持不变的基础上，增加人员入离职、协同360评分关系、完成状态及评分提醒管理权限。</span></div>
         </div>
       </article>
       {bossView ? (
