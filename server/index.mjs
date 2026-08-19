@@ -1208,6 +1208,7 @@ async function getMyScoring360Tasks(req, res, url) {
     LEFT JOIN scoring360_responses r ON r.assignment_id = a.id
     WHERE a.cycle_id = ${sqlValue(cycleId)}
       AND a.evaluator_name = ${sqlValue(evaluator)}
+      AND COALESCE(a.status, 'active') = 'active'
     ORDER BY a.evaluee_name ASC;
   `);
   sendJson(res, 200, {
@@ -1265,6 +1266,7 @@ async function submitScoring360(req, res) {
       WHERE a.id = ${sqlValue(assignmentId)}
         AND a.cycle_id = ${sqlValue(cycleId)}
         AND a.evaluator_name = ${sqlValue(evaluator)}
+        AND COALESCE(a.status, 'active') = 'active'
       LIMIT 1;
     `);
     const assignment = assignmentRows[0];
@@ -1505,8 +1507,8 @@ async function listManagedEmployees(req, res) {
     sendJson(res, 401, { ok: false, error: "unauthorized" });
     return;
   }
-  if (isExternalSession(session) || !isBossSession(session)) {
-    sendJson(res, 403, { ok: false, error: "boss_only" });
+  if (isExternalSession(session) || !isSystemAdminSession(session)) {
+    sendJson(res, 403, { ok: false, error: "system_admin_only" });
     return;
   }
   sendJson(res, 200, { ok: true, employees: await loadManagedEmployees() });
@@ -1518,8 +1520,8 @@ async function saveManagedEmployee(req, res) {
     sendJson(res, 401, { ok: false, error: "unauthorized" });
     return;
   }
-  if (isExternalSession(session) || !isBossSession(session)) {
-    sendJson(res, 403, { ok: false, error: "boss_only" });
+  if (isExternalSession(session) || !isSystemAdminSession(session)) {
+    sendJson(res, 403, { ok: false, error: "system_admin_only" });
     return;
   }
   const body = await readJsonBody(req, { limitBytes: 30_000 });
@@ -1551,8 +1553,8 @@ async function updateManagedEmployeeStatus(req, res) {
     sendJson(res, 401, { ok: false, error: "unauthorized" });
     return;
   }
-  if (isExternalSession(session) || !isBossSession(session)) {
-    sendJson(res, 403, { ok: false, error: "boss_only" });
+  if (isExternalSession(session) || !isSystemAdminSession(session)) {
+    sendJson(res, 403, { ok: false, error: "system_admin_only" });
     return;
   }
   const body = await readJsonBody(req, { limitBytes: 10_000 });
@@ -1569,12 +1571,23 @@ async function updateManagedEmployeeStatus(req, res) {
     return;
   }
   await execSql(`
+    BEGIN TRANSACTION;
     INSERT INTO employees (open_id, name, department, email, is_active, updated_at)
     VALUES (${sqlValue(openId)}, ${sqlValue(name)}, ${sqlValue(body.department || directoryEmployee?.department || "")},
             ${sqlValue(body.email || directoryEmployee?.email || "")}, ${active ? 1 : 0}, datetime('now'))
     ON CONFLICT(open_id) DO UPDATE SET
       is_active = excluded.is_active,
       updated_at = datetime('now');
+    ${active ? "" : `
+    UPDATE scoring360_assignments
+    SET status = 'inactive', updated_at = datetime('now')
+    WHERE COALESCE(status, 'active') = 'active'
+      AND (evaluee_name = ${sqlValue(name)} OR evaluator_name = ${sqlValue(name)})
+      AND NOT EXISTS (
+        SELECT 1 FROM scoring360_responses r
+        WHERE r.assignment_id = scoring360_assignments.id
+      );`}
+    COMMIT;
   `);
   const employee = (await loadManagedEmployees()).find((item) => item.openId === openId) || null;
   if (!employee) {
@@ -1847,10 +1860,12 @@ async function createScoring360Assignment(req, res) {
     return;
   }
   const managedEmployees = await loadManagedEmployees();
-  const evaluee = managedEmployees.find((employee) => employee.active && normalizeUserName(employee.name) === evalueeName)
-    || findDirectoryEmployeeByName(evalueeName);
-  const evaluator = managedEmployees.find((employee) => employee.active && normalizeUserName(employee.name) === evaluatorName)
-    || findDirectoryEmployeeByName(evaluatorName);
+  const evaluee = managedEmployees.find((employee) => employee.active && normalizeUserName(employee.name) === evalueeName);
+  const evaluator = managedEmployees.find((employee) => employee.active && normalizeUserName(employee.name) === evaluatorName);
+  if (!evaluee || !evaluator) {
+    sendJson(res, 409, { ok: false, error: "inactive_employee_assignment_forbidden" });
+    return;
+  }
   const assignmentId = `sc360-${createHash("sha1").update(`${cycleId}:${evalueeName}:${evaluatorName}`).digest("hex").slice(0, 20)}`;
   await execSql(`
     INSERT INTO scoring360_assignments (
@@ -4043,6 +4058,7 @@ function buildAccessProfile(session, user) {
   const externalView = isExternalSession(session);
   const bossView = isBossSession(session);
   const canManageScoring360 = isScoring360ConfigManagerSession(session);
+  const canManagePersonnel = isSystemAdminSession(session);
   const fullVisibility = bossView || externalView;
   const currentEmployee = findDirectoryEmployee(user);
   const visibleEmployees = fullVisibility
@@ -4050,12 +4066,13 @@ function buildAccessProfile(session, user) {
     : visibleEmployeesForUser(user, currentEmployee);
 
   return {
-    role: externalView ? "external_boss_view" : bossView ? "boss" : "member",
+    role: externalView ? "external_boss_view" : bossView ? "boss" : canManageScoring360 ? "system_admin" : "member",
     bossView,
     externalView,
     canViewBossDashboard: bossView || externalView,
     canViewSettings: bossView || canManageScoring360,
     canManageScoring360,
+    canManagePersonnel,
     currentEmployee,
     visibilityMode: fullVisibility
       ? "all_company"
@@ -4593,14 +4610,17 @@ function isBossSession(session) {
   return Boolean(
     openId === "mock_owner" ||
       bossAccessState.openIds.has(openId) ||
-      bossAccessState.names.has(name) ||
-      isScoring360ConfiguredManagerUser(user),
+      bossAccessState.names.has(name),
   );
 }
 
 function isScoring360ConfigManagerSession(session) {
   const user = session?.user || (config.authMode === "mock" ? mockUser() : null);
   return isBossSession(session) || isScoring360ConfiguredManagerUser(user);
+}
+
+function isSystemAdminSession(session) {
+  return isBossSession(session) || isScoring360ConfigManagerSession(session);
 }
 
 function isScoring360ConfiguredManagerUser(user) {

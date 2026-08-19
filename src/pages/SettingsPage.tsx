@@ -283,21 +283,22 @@ export function SettingsPage({ access }: SettingsPageProps) {
   const [accountActivity, setAccountActivity] = useState<AccountActivityStatus | null>(null);
   const bossView = access ? Boolean(access.bossView) : true;
   const canManageScoring360 = access ? Boolean(access.bossView || access.canManageScoring360) : true;
+  const canManagePersonnel = access ? Boolean(access.bossView || access.canManagePersonnel) : true;
   useEffect(() => {
     if (bossView) {
       loadExternalLinks();
       loadBossViewMembers();
-      loadManagedEmployees();
       loadLarkReportSyncStatus();
       loadWeeklyReminderStatus();
       loadRosterAudit();
       loadAccountActivity();
     }
+    if (canManagePersonnel) loadManagedEmployees();
     if (canManageScoring360) {
       loadScoring360Config();
       loadScoring360ReminderStatus();
     }
-  }, [bossView, canManageScoring360]);
+  }, [bossView, canManageScoring360, canManagePersonnel]);
 
   useEffect(() => {
     if (!scoring360Evaluee && employeeOptions[0]) {
@@ -362,6 +363,7 @@ export function SettingsPage({ access }: SettingsPageProps) {
       await loadManagedEmployees();
       await loadRosterAudit();
       await loadScoring360Config();
+      await loadScoring360ReminderStatus();
       setEmployeeManageState("saved");
     } catch (error) {
       setEmployeeManageError(error instanceof Error ? error.message : "保存人员失败");
@@ -370,7 +372,7 @@ export function SettingsPage({ access }: SettingsPageProps) {
   }
 
   async function setManagedEmployeeActive(employee: ManagedEmployee, active: boolean) {
-    if (!active && !window.confirm(`确认停用 ${employee.name}？历史周报和评分会保留，但该员工将退出活跃人员名单。`)) return;
+    if (!active && !window.confirm(`确认停用 ${employee.name}？该员工将退出活跃人员、待评分名单和飞书提醒；历史周报与已提交评分会保留。`)) return;
     setEmployeeManageState("saving");
     setEmployeeManageError("");
     try {
@@ -384,6 +386,7 @@ export function SettingsPage({ access }: SettingsPageProps) {
       await loadManagedEmployees();
       await loadRosterAudit();
       await loadScoring360Config();
+      await loadScoring360ReminderStatus();
       setEmployeeManageState("saved");
     } catch (error) {
       setEmployeeManageError(error instanceof Error ? error.message : "更新人员状态失败");
@@ -651,6 +654,18 @@ export function SettingsPage({ access }: SettingsPageProps) {
 
   return (
     <section className="settings-grid">
+      <article className="panel">
+        <div className="panel-heading compact">
+          <div>
+            <span className="section-label">Permissions</span>
+            <h2>系统管理角色</h2>
+          </div>
+        </div>
+        <div className="permission-list">
+          <div><strong>老板视角</strong><span>权限保持不变，可查看完整经营视角及原有老板功能。</span></div>
+          <div><strong>系统管理员（刘海娇）</strong><span>维护人员入离职、协同360评分关系，查看完成状态并发起或补发评分提醒；不获得老板经营视角。</span></div>
+        </div>
+      </article>
       {bossView ? (
         <>
       <article className="panel">
@@ -702,6 +717,9 @@ export function SettingsPage({ access }: SettingsPageProps) {
           {bossViewState === "error" ? <span className="settings-error">保存失败，请确认当前账号有老板视角权限。</span> : null}
         </div>
       </article>
+        </>
+      ) : null}
+      {canManagePersonnel ? (
       <article className="panel employee-manage-panel">
         <div className="panel-heading compact">
           <div>
@@ -710,7 +728,7 @@ export function SettingsPage({ access }: SettingsPageProps) {
           </div>
           <span className="boss-access-count">在职 {managedEmployees.filter((employee) => employee.active).length} 人</span>
         </div>
-        <p className="boss-access-copy">新增或更新人员后会进入系统花名册；停用人员不会删除历史周报、评分和审计记录。飞书 open_id 用于登录、身份匹配和接收评分通知。</p>
+        <p className="boss-access-copy">系统管理员可维护人员。新增或更新人员后会进入系统花名册；停用后不再新增评分关系，并退出已有关系的待评分名单与飞书提醒，历史周报、已提交评分和审计记录继续保留。飞书 open_id 用于登录、身份匹配和接收评分通知。</p>
         <div className="employee-manage-form">
           <label><span>姓名 *</span><input value={employeeName} onChange={(event) => setEmployeeName(event.target.value)} placeholder="员工姓名" /></label>
           <label><span>飞书 open_id *</span><input value={employeeOpenId} onChange={(event) => setEmployeeOpenId(event.target.value)} placeholder="ou_xxx" /></label>
@@ -735,7 +753,6 @@ export function SettingsPage({ access }: SettingsPageProps) {
         {employeeManageState === "saved" ? <p className="settings-success">人员名单已更新。</p> : null}
         {employeeManageError ? <p className="settings-error">人员维护失败：{employeeManageError}</p> : null}
       </article>
-        </>
       ) : null}
       {canManageScoring360 ? (
         <>
