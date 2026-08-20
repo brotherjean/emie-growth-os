@@ -43,6 +43,7 @@ export interface UserAccess {
   canViewBossDashboard: boolean;
   canViewSettings: boolean;
   canManageScoring360: boolean;
+  canManagePersonnel: boolean;
   currentEmployee?: VisibleEmployee | null;
   visibilityMode: "all_company" | "self_department_and_reports" | "self_only" | string;
   visibleEmployees: VisibleEmployee[];

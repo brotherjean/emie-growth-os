@@ -42,7 +42,7 @@ export function isScoring360ConfigManager(user, managers = defaultScoring360Conf
     const managerName = String(manager?.name || manager?.姓名 || "").trim();
     return Boolean(
       (openId && managerOpenId && openId === managerOpenId) ||
-        (name && managerName && (name === managerName || name.includes(managerName) || managerName.includes(name))),
+        (name && managerName && name === managerName),
     );
   });
 }

@@ -36,8 +36,16 @@ try {
 
   const me = await fetchJson(`${baseUrl}/api/me`);
   assert(me.user?.name === "Demo Manager", `expected mock manager user, got ${me.user?.name}`);
-  assert(me.access?.bossView === true, "configured manager should have full boss view access");
+  assert(me.access?.bossView === false, "scoring manager should not inherit boss view access");
   assert(me.access?.canManageScoring360 === true, "configured manager should manage scoring360");
+  assert(me.access?.canManagePersonnel === true, "configured manager should manage active personnel");
+  assert(me.access?.canViewSettings === true, "configured manager should access relevant settings");
+
+  await postJson(`${baseUrl}/api/employees/manage`, {
+    openId: "mock_manager",
+    name: "Demo Manager",
+    department: "Management",
+  });
 
   const overview = await fetchJson(`${baseUrl}/api/scoring360`);
   assert(overview.cycle?.id === "2026-05-round2-360", `expected current round cycle, got ${overview.cycle?.id}`);
@@ -83,6 +91,20 @@ async function fetchJson(url) {
   } catch {
     throw new Error(`invalid JSON from ${url}: ${text}`);
   }
+  if (!response.ok || json?.ok === false) {
+    throw new Error(`request failed ${url}: ${response.status} ${text}`);
+  }
+  return json;
+}
+
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  const json = text ? JSON.parse(text) : null;
   if (!response.ok || json?.ok === false) {
     throw new Error(`request failed ${url}: ${response.status} ${text}`);
   }

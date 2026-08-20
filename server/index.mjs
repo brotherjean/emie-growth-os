@@ -69,6 +69,7 @@ const config = {
   scoring360ActiveDate: process.env.SCORING360_ACTIVE_DATE || "",
   scoring360ConfigManagerOpenIds: process.env.SCORING360_CONFIG_MANAGER_OPEN_IDS || "",
   scoring360ConfigManagerNames: process.env.SCORING360_CONFIG_MANAGER_NAMES || "",
+  scoring360LaunchMode: process.env.SCORING360_LAUNCH_MODE === "scheduled" ? "scheduled" : "manual",
   scoring360RosterExempt: process.env.SCORING360_ROSTER_EXEMPT || process.env.LARK_REPORT_AUTO_SYNC_EXEMPT || "",
   larkAuthMonitorEnabled: process.env.LARK_AUTH_MONITOR_ENABLED !== "false",
   larkAuthMonitorIntervalMinutes: Number(process.env.LARK_AUTH_MONITOR_INTERVAL_MINUTES || 60),
@@ -94,8 +95,15 @@ const bossAccessState = {
   members: [],
 };
 
+const scoring360AdminState = {
+  openIds: new Set(),
+  names: new Set(),
+  members: [],
+};
+
 await ensureDatabase();
 await loadBossAccessState();
+await loadScoring360AdminState();
 await ensureScoring360SeedData();
 
 const server = http.createServer(async (req, res) => {
@@ -114,7 +122,7 @@ server.listen(config.port, () => {
 scheduleWeeklyLarkReportSync();
 scheduleWeeklyGrowthReminder();
 scheduleWeeklyUpdateReminder();
-scheduleScoring360Reminder();
+if (config.scoring360LaunchMode === "scheduled") scheduleScoring360Reminder();
 scheduleLarkAuthMonitor();
 
 async function route(req, res) {
@@ -216,6 +224,16 @@ async function route(req, res) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/scoring360-admin-members") {
+    await listScoring360AdminMembers(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/employees/manage") {
+    await listManagedEmployees(req, res);
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/lark-report-sync") {
     await getLarkReportSyncStatus(req, res);
     return;
@@ -284,6 +302,21 @@ async function route(req, res) {
 
   if (req.method === "POST" && url.pathname === "/api/boss-view-members") {
     await updateBossViewMembers(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/scoring360-admin-members") {
+    await updateScoring360AdminMembers(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/employees/manage") {
+    await upsertManagedEmployee(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/employees/manage/status") {
+    await updateManagedEmployeeStatus(req, res);
     return;
   }
 
@@ -1124,6 +1157,7 @@ async function getScoring360(req, res, url) {
     FROM scoring360_assignments a
     LEFT JOIN scoring360_responses r ON r.assignment_id = a.id
     WHERE a.cycle_id = ${sqlValue(cycleId)}
+      AND (COALESCE(a.status, 'active') = 'active' OR r.id IS NOT NULL)
     GROUP BY a.evaluee_name
     ORDER BY average_score DESC, completion_rate DESC, name ASC;
   `);
@@ -1192,6 +1226,7 @@ async function getMyScoring360Tasks(req, res, url) {
     LEFT JOIN scoring360_responses r ON r.assignment_id = a.id
     WHERE a.cycle_id = ${sqlValue(cycleId)}
       AND a.evaluator_name = ${sqlValue(evaluator)}
+      AND COALESCE(a.status, 'active') = 'active'
     ORDER BY a.evaluee_name ASC;
   `);
   sendJson(res, 200, {
@@ -1249,6 +1284,7 @@ async function submitScoring360(req, res) {
       WHERE a.id = ${sqlValue(assignmentId)}
         AND a.cycle_id = ${sqlValue(cycleId)}
         AND a.evaluator_name = ${sqlValue(evaluator)}
+        AND COALESCE(a.status, 'active') = 'active'
       LIMIT 1;
     `);
     const assignment = assignmentRows[0];
@@ -1289,8 +1325,9 @@ async function getScoring360Config(req, res, url) {
     return;
   }
   const cycleId = await resolveScoring360CycleId(url.searchParams.get("cycleId"), { ensureCurrentRound: true });
+  const employees = await loadManagedEmployees();
   if (!cycleId) {
-    sendJson(res, 200, { ok: true, cycle: null, employees: employeeDirectory, assignments: [], diagnosis: scoring360Diagnosis() });
+    sendJson(res, 200, { ok: true, cycle: null, employees, assignments: [], diagnosis: scoring360Diagnosis() });
     return;
   }
 
@@ -1309,12 +1346,13 @@ async function getScoring360Config(req, res, url) {
     FROM scoring360_assignments a
     LEFT JOIN scoring360_responses r ON r.assignment_id = a.id
     WHERE a.cycle_id = ${sqlValue(cycleId)}
+      AND COALESCE(a.status, 'active') = 'active'
     ORDER BY a.evaluee_name ASC, a.evaluator_name ASC;
   `);
   sendJson(res, 200, {
     ok: true,
     cycle: cycleRows[0] ? formatScoring360Cycle(cycleRows[0]) : null,
-    employees: employeeDirectory,
+    employees,
     assignments: assignmentRows.map(formatScoring360ConfigAssignment),
     diagnosis: scoring360Diagnosis(),
   });
@@ -1348,6 +1386,7 @@ async function getScoring360ReminderStatus(req, res, url) {
   sendJson(res, 200, {
     ok: true,
     enabled: config.scoring360ReminderEnabled,
+    launchMode: config.scoring360LaunchMode,
     schedule: {
       dayOfMonth: config.scoring360ReminderDaysOfMonth[0] || config.scoring360ReminderDayOfMonth,
       daysOfMonth: config.scoring360ReminderDaysOfMonth,
@@ -1494,33 +1533,43 @@ async function loadScoring360Cycle(cycleId) {
 
 async function loadScoring360PendingRecipients(cycleId) {
   const rows = await querySqlRows(`
-    SELECT
-      a.evaluator_name,
-      MAX(COALESCE(a.evaluator_open_id, '')) AS evaluator_open_id,
-      COUNT(a.id) AS total_count,
-      SUM(CASE WHEN r.id IS NULL THEN 1 ELSE 0 END) AS pending_count,
-      GROUP_CONCAT(CASE WHEN r.id IS NULL THEN a.evaluee_name END, '、') AS pending_names
+    SELECT a.evaluator_name, a.evaluator_open_id, a.evaluee_name, a.evaluee_open_id, r.id AS response_id
     FROM scoring360_assignments a
     LEFT JOIN scoring360_responses r ON r.assignment_id = a.id
     WHERE a.cycle_id = ${sqlValue(cycleId)}
       AND COALESCE(a.status, 'active') = 'active'
-    GROUP BY a.evaluator_name
-    HAVING pending_count > 0
-    ORDER BY pending_count DESC, a.evaluator_name ASC;
+    ORDER BY a.evaluator_name ASC, a.evaluee_name ASC;
   `);
-  return rows.map((row) => {
-    const directoryEmployee = findDirectoryEmployeeByName(row.evaluator_name);
-    const openId = String(row.evaluator_open_id || directoryEmployee?.openId || "").trim();
-    return {
-      evaluatorName: row.evaluator_name,
-      evaluatorOpenId: openId,
-      department: directoryEmployee?.department || "",
-      pendingCount: Number(row.pending_count || 0),
-      totalCount: Number(row.total_count || 0),
-      pendingNames: String(row.pending_names || "").split("、").map((item) => item.trim()).filter(Boolean),
-      deliverable: Boolean(openId),
-    };
-  });
+  const employees = await loadManagedEmployees();
+  const activeByOpenId = new Map(employees.filter((item) => item.openId).map((item) => [item.openId, item]));
+  const activeByName = new Map(employees.map((item) => [normalizeUserName(item.name), item]));
+  const grouped = new Map();
+  for (const row of rows) {
+    const evaluator = activeByOpenId.get(String(row.evaluator_open_id || "")) || activeByName.get(normalizeUserName(row.evaluator_name));
+    const evaluee = activeByOpenId.get(String(row.evaluee_open_id || "")) || activeByName.get(normalizeUserName(row.evaluee_name));
+    if (!evaluator || !evaluee) continue;
+    const key = evaluator.openId || evaluator.name;
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        evaluatorName: evaluator.name,
+        evaluatorOpenId: evaluator.openId || "",
+        department: evaluator.department || "",
+        pendingCount: 0,
+        totalCount: 0,
+        pendingNames: [],
+        deliverable: Boolean(evaluator.openId),
+      });
+    }
+    const item = grouped.get(key);
+    item.totalCount += 1;
+    if (!row.response_id) {
+      item.pendingCount += 1;
+      item.pendingNames.push(evaluee.name);
+    }
+  }
+  return Array.from(grouped.values())
+    .filter((item) => item.pendingCount > 0)
+    .sort((left, right) => right.pendingCount - left.pendingCount || left.evaluatorName.localeCompare(right.evaluatorName, "zh-CN"));
 }
 
 async function runScoring360Reminder({ cycleId, kind = "launch", dryRun = true, force = false, source = "manual", actor = null } = {}) {
@@ -1715,15 +1764,19 @@ async function createScoring360Assignment(req, res) {
     sendJson(res, 400, { ok: false, error: "invalid_assignment" });
     return;
   }
-  const evaluee = findDirectoryEmployeeByName(evalueeName);
-  const evaluator = findDirectoryEmployeeByName(evaluatorName);
+  const evaluee = await findActiveManagedEmployee(evalueeName);
+  const evaluator = await findActiveManagedEmployee(evaluatorName);
+  if (!evaluee || !evaluator) {
+    sendJson(res, 409, { ok: false, error: "inactive_or_unknown_employee" });
+    return;
+  }
   const assignmentId = `sc360-${createHash("sha1").update(`${cycleId}:${evalueeName}:${evaluatorName}`).digest("hex").slice(0, 20)}`;
   await execSql(`
     INSERT INTO scoring360_assignments (
       id, cycle_id, evaluee_name, evaluator_name, evaluee_open_id, evaluator_open_id, relationship, status, created_at, updated_at
     ) VALUES (
       ${sqlValue(assignmentId)}, ${sqlValue(cycleId)}, ${sqlValue(evalueeName)}, ${sqlValue(evaluatorName)},
-      ${sqlValue(evaluee?.openId || "")}, ${sqlValue(evaluator?.openId || "")}, ${sqlValue(body.relationship || "")},
+      ${sqlValue(evaluee.openId || "")}, ${sqlValue(evaluator.openId || "")}, ${sqlValue(body.relationship || "")},
       'active', datetime('now'), datetime('now')
     )
     ON CONFLICT(cycle_id, evaluee_name, evaluator_name) DO UPDATE SET
@@ -1774,13 +1827,12 @@ async function deleteScoring360Assignment(req, res) {
     return;
   }
   await execSql(`
-    BEGIN TRANSACTION;
-    DELETE FROM scoring360_responses WHERE assignment_id = ${sqlValue(assignment.id)};
-    DELETE FROM scoring360_assignments WHERE id = ${sqlValue(assignment.id)};
-    COMMIT;
+    UPDATE scoring360_assignments
+    SET status = 'inactive', updated_at = datetime('now')
+    WHERE id = ${sqlValue(assignment.id)};
   `);
   await refreshScoring360CycleTotals(assignment.cycle_id);
-  sendJson(res, 200, { ok: true, deleted: assignment.id });
+  sendJson(res, 200, { ok: true, deactivated: assignment.id });
 }
 
 async function recordUsageVisit(req, res) {
@@ -2250,6 +2302,121 @@ async function updateBossViewMembers(req, res) {
   await saveAppSetting("boss_view_members", { members });
   applyBossViewMembers(members);
   sendJson(res, 200, { ok: true, members: bossAccessState.members });
+}
+
+async function listScoring360AdminMembers(req, res) {
+  const session = getSession(req);
+  if (!session && config.authMode !== "mock") {
+    sendJson(res, 401, { ok: false, error: "unauthorized" });
+    return;
+  }
+  if (isExternalSession(session) || !isBossSession(session)) {
+    sendJson(res, 403, { ok: false, error: "boss_only" });
+    return;
+  }
+  sendJson(res, 200, { ok: true, members: scoring360AdminState.members });
+}
+
+async function updateScoring360AdminMembers(req, res) {
+  const session = getSession(req);
+  if (!session && config.authMode !== "mock") {
+    sendJson(res, 401, { ok: false, error: "unauthorized" });
+    return;
+  }
+  if (isExternalSession(session) || !isBossSession(session)) {
+    sendJson(res, 403, { ok: false, error: "boss_only" });
+    return;
+  }
+  const body = await readJsonBody(req, { limitBytes: 80_000 });
+  const members = normalizeBossViewMembers(body.members || []);
+  await saveAppSetting("scoring360_admin_members", { members });
+  applyScoring360AdminMembers(members);
+  sendJson(res, 200, { ok: true, members: scoring360AdminState.members });
+}
+
+async function listManagedEmployees(req, res) {
+  const session = getSession(req);
+  if (!session && config.authMode !== "mock") {
+    sendJson(res, 401, { ok: false, error: "unauthorized" });
+    return;
+  }
+  if (isExternalSession(session) || !isScoring360ConfigManagerSession(session)) {
+    sendJson(res, 403, { ok: false, error: "scoring360_config_manager_only" });
+    return;
+  }
+  sendJson(res, 200, { ok: true, employees: await loadManagedEmployees({ includeInactive: true }) });
+}
+
+async function upsertManagedEmployee(req, res) {
+  const session = getSession(req);
+  if (!session && config.authMode !== "mock") {
+    sendJson(res, 401, { ok: false, error: "unauthorized" });
+    return;
+  }
+  if (isExternalSession(session) || !isScoring360ConfigManagerSession(session)) {
+    sendJson(res, 403, { ok: false, error: "scoring360_config_manager_only" });
+    return;
+  }
+  const body = await readJsonBody(req, { limitBytes: 30_000 });
+  const employee = normalizeManagedEmployee(body);
+  if (!employee.openId || !employee.name) {
+    sendJson(res, 400, { ok: false, error: "employee_open_id_and_name_required" });
+    return;
+  }
+  await ensureManagedEmployeeStore();
+  await execSql(`
+    INSERT INTO employees (open_id, name, department, email, manager_open_id, role_level, is_active, updated_at)
+    VALUES (${sqlValue(employee.openId)}, ${sqlValue(employee.name)}, ${sqlValue(employee.department)},
+            ${sqlValue(employee.email)}, ${sqlValue(employee.managerOpenId)}, ${sqlValue(employee.roleLevel)}, 1, datetime('now'))
+    ON CONFLICT(open_id) DO UPDATE SET
+      name = excluded.name,
+      department = excluded.department,
+      email = excluded.email,
+      manager_open_id = excluded.manager_open_id,
+      role_level = excluded.role_level,
+      is_active = 1,
+      updated_at = datetime('now');
+  `);
+  sendJson(res, 200, { ok: true, employee: (await loadManagedEmployees({ includeInactive: true })).find((item) => item.openId === employee.openId) });
+}
+
+async function updateManagedEmployeeStatus(req, res) {
+  const session = getSession(req);
+  if (!session && config.authMode !== "mock") {
+    sendJson(res, 401, { ok: false, error: "unauthorized" });
+    return;
+  }
+  if (isExternalSession(session) || !isScoring360ConfigManagerSession(session)) {
+    sendJson(res, 403, { ok: false, error: "scoring360_config_manager_only" });
+    return;
+  }
+  const body = await readJsonBody(req, { limitBytes: 20_000 });
+  const openId = String(body.openId || body.open_id || "").trim();
+  const active = body.active !== false;
+  if (!openId) {
+    sendJson(res, 400, { ok: false, error: "employee_open_id_required" });
+    return;
+  }
+  await ensureManagedEmployeeStore();
+  const rows = await querySqlRows(`SELECT open_id, name FROM employees WHERE open_id = ${sqlValue(openId)} LIMIT 1;`);
+  if (!rows[0]) {
+    sendJson(res, 404, { ok: false, error: "employee_not_found" });
+    return;
+  }
+  await execSql(`
+    UPDATE employees SET is_active = ${active ? 1 : 0}, updated_at = datetime('now')
+    WHERE open_id = ${sqlValue(openId)};
+  `);
+  if (!active) {
+    await execSql(`
+      UPDATE scoring360_assignments
+      SET status = 'inactive', updated_at = datetime('now')
+      WHERE status = 'active'
+        AND (evaluee_open_id = ${sqlValue(openId)} OR evaluator_open_id = ${sqlValue(openId)}
+             OR evaluee_name = ${sqlValue(rows[0].name)} OR evaluator_name = ${sqlValue(rows[0].name)});
+    `);
+  }
+  sendJson(res, 200, { ok: true, openId, active });
 }
 
 async function getLarkReportSyncStatus(req, res) {
@@ -3541,6 +3708,17 @@ async function loadBossAccessState() {
   }
 }
 
+async function loadScoring360AdminState() {
+  try {
+    const rows = await querySqlRows(`SELECT value_json FROM app_settings WHERE key = 'scoring360_admin_members' LIMIT 1;`);
+    const parsed = rows[0]?.value_json ? JSON.parse(rows[0].value_json) : null;
+    applyScoring360AdminMembers(parsed?.members || []);
+  } catch (error) {
+    console.error("Failed to load scoring360 admin members", error);
+    applyScoring360AdminMembers([]);
+  }
+}
+
 async function ensureScoring360SeedData() {
   if (!existsSync(scoring360DataPath)) return;
   const data = JSON.parse(await readFile(scoring360DataPath, "utf8"));
@@ -3673,28 +3851,34 @@ async function copyScoring360AssignmentsFromTemplate(targetCycleId) {
   `);
   if (assignments.length === 0) return 0;
 
+  const activeEmployees = await loadManagedEmployees();
+  const activeByOpenId = new Map(activeEmployees.filter((item) => item.openId).map((item) => [item.openId, item]));
+  const activeByName = new Map(activeEmployees.map((item) => [normalizeUserName(item.name), item]));
   const statements = ["BEGIN TRANSACTION;"];
+  let copied = 0;
   for (const assignment of assignments) {
     const evalueeName = normalizeUserName(assignment.evaluee_name);
     const evaluatorName = normalizeUserName(assignment.evaluator_name);
     if (!evalueeName || !evaluatorName) continue;
-    const evaluee = findDirectoryEmployeeByName(evalueeName);
-    const evaluator = findDirectoryEmployeeByName(evaluatorName);
+    const evaluee = activeByOpenId.get(String(assignment.evaluee_open_id || "")) || activeByName.get(evalueeName);
+    const evaluator = activeByOpenId.get(String(assignment.evaluator_open_id || "")) || activeByName.get(evaluatorName);
+    if (!evaluee || !evaluator) continue;
     const assignmentId = `sc360-${createHash("sha1").update(`${targetCycleId}:${evalueeName}:${evaluatorName}`).digest("hex").slice(0, 20)}`;
     statements.push(`
       INSERT OR IGNORE INTO scoring360_assignments (
         id, cycle_id, evaluee_name, evaluator_name, evaluee_open_id, evaluator_open_id, relationship, status, created_at, updated_at
       ) VALUES (
         ${sqlValue(assignmentId)}, ${sqlValue(targetCycleId)}, ${sqlValue(evalueeName)}, ${sqlValue(evaluatorName)},
-        ${sqlValue(evaluee?.openId || assignment.evaluee_open_id || "")},
-        ${sqlValue(evaluator?.openId || assignment.evaluator_open_id || "")},
+        ${sqlValue(evaluee.openId || "")},
+        ${sqlValue(evaluator.openId || "")},
         ${sqlValue(assignment.relationship || "")}, 'active', datetime('now'), datetime('now')
       );
     `);
+    copied += 1;
   }
   statements.push("COMMIT;");
   await execSql(statements.join("\n"));
-  return assignments.length;
+  return copied;
 }
 
 function formatScoring360Cycle(row) {
@@ -3829,12 +4013,12 @@ async function refreshScoring360CycleTotals(cycleId) {
     SET total_employees = (
           SELECT COUNT(DISTINCT evaluator_name)
           FROM scoring360_assignments
-          WHERE cycle_id = ${sqlValue(cycleId)}
+          WHERE cycle_id = ${sqlValue(cycleId)} AND COALESCE(status, 'active') = 'active'
         ),
         total_evaluees = (
           SELECT COUNT(DISTINCT evaluee_name)
           FROM scoring360_assignments
-          WHERE cycle_id = ${sqlValue(cycleId)}
+          WHERE cycle_id = ${sqlValue(cycleId)} AND COALESCE(status, 'active') = 'active'
         ),
         updated_at = datetime('now')
     WHERE id = ${sqlValue(cycleId)};
@@ -3865,6 +4049,17 @@ function applyBossViewMembers(members) {
   for (const member of bossAccessState.members) {
     if (member.openId) bossAccessState.openIds.add(member.openId);
     if (member.name) bossAccessState.names.add(member.name);
+  }
+}
+
+function applyScoring360AdminMembers(members) {
+  const normalized = normalizeBossViewMembers(members);
+  scoring360AdminState.openIds = new Set();
+  scoring360AdminState.names = new Set();
+  scoring360AdminState.members = normalized;
+  for (const member of normalized) {
+    if (member.openId) scoring360AdminState.openIds.add(member.openId);
+    if (member.name) scoring360AdminState.names.add(member.name);
   }
 }
 
@@ -3905,10 +4100,72 @@ function loadEmployeeDirectory() {
   }
 }
 
+function normalizeManagedEmployee(input) {
+  return {
+    openId: String(input?.openId || input?.open_id || "").trim(),
+    name: normalizeUserName(input?.name || input?.姓名),
+    department: String(input?.department || input?.部门 || "").trim(),
+    email: String(input?.email || input?.企业邮箱 || "").trim(),
+    managerOpenId: String(input?.managerOpenId || input?.manager_open_id || "").trim(),
+    roleLevel: String(input?.roleLevel || input?.role_level || "").trim(),
+  };
+}
+
+async function ensureManagedEmployeeStore() {
+  const rows = await querySqlRows("SELECT COUNT(*) AS count FROM employees;").catch(() => []);
+  if (Number(rows[0]?.count || 0) > 0 || employeeDirectory.length === 0) return;
+  const statements = ["BEGIN TRANSACTION;"];
+  for (const employee of employeeDirectory) {
+    if (!employee.openId || !employee.name) continue;
+    statements.push(`
+      INSERT OR IGNORE INTO employees (open_id, name, department, email, manager_open_id, is_active, updated_at)
+      VALUES (${sqlValue(employee.openId)}, ${sqlValue(employee.name)}, ${sqlValue(employee.department || "")},
+              ${sqlValue(employee.email || "")}, ${sqlValue(employee.managerOpenId || "")}, 1, datetime('now'));
+    `);
+  }
+  statements.push("COMMIT;");
+  await execSql(statements.join("\n"));
+}
+
+async function loadManagedEmployees({ includeInactive = false } = {}) {
+  const rows = await querySqlRows(`
+    SELECT open_id, name, department, email, manager_open_id, role_level, is_active, updated_at
+    FROM employees
+    ORDER BY name ASC;
+  `).catch(() => []);
+  if (rows.length === 0) {
+    return employeeDirectory.map((employee) => ({
+      ...employee,
+      roleLevel: "",
+      active: true,
+      source: "static_fallback",
+    }));
+  }
+  return rows.map((row) => ({
+    openId: row.open_id,
+    name: row.name,
+    department: row.department || "",
+    email: row.email || "",
+    managerOpenId: row.manager_open_id || "",
+    roleLevel: row.role_level || "",
+    active: Number(row.is_active) === 1,
+    updatedAt: row.updated_at || "",
+    source: "database",
+  })).filter((employee) => includeInactive || employee.active);
+}
+
+async function findActiveManagedEmployee(value) {
+  const normalized = normalizeUserName(value);
+  if (!normalized) return null;
+  const employees = await loadManagedEmployees();
+  return employees.find((employee) => employee.openId === normalized || normalizeUserName(employee.name) === normalized) || null;
+}
+
 function buildAccessProfile(session, user) {
   const externalView = isExternalSession(session);
   const bossView = isBossSession(session);
   const canManageScoring360 = isScoring360ConfigManagerSession(session);
+  const canManagePersonnel = canManageScoring360;
   const fullVisibility = bossView || externalView;
   const currentEmployee = findDirectoryEmployee(user);
   const visibleEmployees = fullVisibility
@@ -3916,12 +4173,13 @@ function buildAccessProfile(session, user) {
     : visibleEmployeesForUser(user, currentEmployee);
 
   return {
-    role: externalView ? "external_boss_view" : bossView ? "boss" : "member",
+    role: externalView ? "external_boss_view" : bossView ? "boss" : canManageScoring360 ? "system_admin" : "member",
     bossView,
     externalView,
     canViewBossDashboard: bossView || externalView,
     canViewSettings: bossView || canManageScoring360,
     canManageScoring360,
+    canManagePersonnel,
     currentEmployee,
     visibilityMode: fullVisibility
       ? "all_company"
@@ -4459,8 +4717,7 @@ function isBossSession(session) {
   return Boolean(
     openId === "mock_owner" ||
       bossAccessState.openIds.has(openId) ||
-      bossAccessState.names.has(name) ||
-      isScoring360ConfiguredManagerUser(user),
+      bossAccessState.names.has(name),
   );
 }
 
@@ -4476,7 +4733,7 @@ function isScoring360ConfiguredManagerUser(user) {
 function scoring360ConfigManagers() {
   const envOpenIds = parseCsvList(config.scoring360ConfigManagerOpenIds).map((openId) => ({ openId, name: "" }));
   const envNames = parseCsvList(config.scoring360ConfigManagerNames).map((name) => ({ openId: "", name }));
-  return [...defaultScoring360ConfigManagers, ...envOpenIds, ...envNames];
+  return [...defaultScoring360ConfigManagers, ...envOpenIds, ...envNames, ...scoring360AdminState.members];
 }
 
 function parseCsvList(value) {

@@ -27,7 +27,8 @@
     "db:init": "node scripts/init-sqlite-db.mjs",
     "db:seed": "node scripts/init-sqlite-db.mjs --seed",
     "server:dev": "AUTH_MODE=mock SERVER_PORT=5174 node server/index.mjs",
-    "server:start": "node server/index.mjs"
+    "server:start": "node server/index.mjs",
+    "test:scoring360": "node scripts/test-scoring360-policy.mjs && node scripts/test-scoring360-api.mjs && node scripts/test-scoring360-admin-api.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",

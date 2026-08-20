@@ -2146,6 +2146,60 @@ button {
   gap: 12px;
 }
 
+.personnel-admin-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.personnel-admin-form {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(220px, 1.4fr) minmax(140px, 1fr) auto;
+  gap: 10px;
+}
+
+.personnel-admin-form input {
+  min-height: 42px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #172033;
+  background: #fff;
+  font: inherit;
+}
+
+.personnel-admin-list {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.personnel-admin-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.personnel-admin-list > div.is-inactive {
+  opacity: 0.65;
+  background: #f8fafc;
+}
+
+.personnel-admin-list span {
+  display: grid;
+  gap: 3px;
+}
+
+.personnel-admin-list small {
+  color: #64748b;
+  font-size: 12px;
+}
+
 .boss-access-count {
   align-self: start;
   padding: 6px 10px;
@@ -4909,6 +4963,7 @@ button {
   .ai-plan-grid,
   .external-link-form,
   .external-link-row,
+  .personnel-admin-form,
   .sync-status-box,
   .contributor-row,
   .contribution-footer,
